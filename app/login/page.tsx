@@ -26,7 +26,8 @@ export default function LoginPage() {
 
         <form action={action} className="login-form">
           <label className="lbl">Usuario</label>
-          <input className="inp" name="usuario" placeholder="ej. decheverri" autoComplete="username" />
+          <input className="inp upper" name="usuario" placeholder="Usuario" autoComplete="username"
+            onChange={(e) => { e.target.value = e.target.value.toUpperCase(); }} />
           <label className="lbl">Contraseña</label>
           <input className="inp" name="password" type="password" placeholder="••••••••" autoComplete="current-password" />
           {state?.error && <p className="err">{state.error}</p>}

@@ -31,9 +31,9 @@ export async function crearUsuario(input: {
   });
   if (e1 || !authUser.user) throw new Error(e1?.message ?? "No se pudo crear el usuario");
 
-  // 2) Crea el perfil con su rol y cargo.
+  // 2) Crea el perfil con su rol y cargo. El usuario se guarda en MAYÚSCULA.
   const { error: e2 } = await admin.from("usuarios").insert({
-    id: authUser.user.id, login: input.login, nombre: input.nombre,
+    id: authUser.user.id, login: input.login.toUpperCase(), nombre: input.nombre,
     apellido: input.apellido, rol: input.rol, cargo: input.cargo, code: input.code ?? null,
   });
   if (e2) throw new Error(e2.message);
@@ -45,11 +45,32 @@ export async function crearUsuario(input: {
   return { id: authUser.user.id };
 }
 
-// ── Cambiar la contraseña de un miembro ───────────────────────────
+// ── Cambiar la contraseña de un miembro (queda temporal: debe cambiarla) ──
 export async function resetPassword(userId: string, nueva: string) {
   await exigirAdmin();
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.updateUserById(userId, { password: nueva });
+  if (error) throw new Error(error.message);
+  await admin.from("usuarios").update({ debe_cambiar_pass: true, pass_cambiada_at: null }).eq("id", userId);
+}
+
+// ── Editar perfil de un usuario ───────────────────────────────────
+export async function editarUsuario(userId: string, campos: {
+  nombre?: string; apellido?: string; code?: string; rol?: Rol; cargo?: string; login?: string;
+}) {
+  await exigirAdmin();
+  const admin = createAdminClient();
+  const patch: Record<string, unknown> = { ...campos };
+  if (campos.login) patch.login = campos.login.toUpperCase();
+  const { error } = await admin.from("usuarios").update(patch).eq("id", userId);
+  if (error) throw new Error(error.message);
+}
+
+// ── Bloquear / desbloquear acceso ─────────────────────────────────
+export async function bloquearUsuario(userId: string, bloquear: boolean) {
+  await exigirAdmin();
+  const admin = createAdminClient();
+  const { error } = await admin.from("usuarios").update({ bloqueado: bloquear }).eq("id", userId);
   if (error) throw new Error(error.message);
 }
 

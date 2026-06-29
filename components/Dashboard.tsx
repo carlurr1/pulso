@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario, guardarHorarios } from "@/app/actions";
+import { crearUsuario, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
 
@@ -714,13 +714,21 @@ function GestionConfig({ catalogo, reload, fire }: { catalogo: GestionTipo[]; re
   );
 }
 
+function estadoUsuario(u: Usuario): { txt: string; cls: string } {
+  if (u.bloqueado) return { txt: "Bloqueado", cls: "alto" };
+  if (u.debe_cambiar_pass) return { txt: "Clave temporal", cls: "medio" };
+  return { txt: "Activa", cls: "done" };
+}
+
 function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [users, setUsers] = useState<Usuario[]>([]);
   const [modal, setModal] = useState(false);
+  const [edit, setEdit] = useState<any>(null);   // usuario en edición
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" });
   const reload = () => data.getUsuarios().then(setUsers);
   useEffect(() => { reload(); }, []);
+
   const add = async () => {
     if (!f.nombre.trim() || !f.login.trim()) return;
     setBusy(true);
@@ -728,29 +736,60 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo crear")); }
     finally { setBusy(false); }
   };
+
+  const abrirEdit = (u: Usuario) => setEdit({ id: u.id, nombre: u.nombre, apellido: u.apellido ?? "", code: u.code ?? "", cargo: u.cargo ?? "Agente", rol: u.rol, bloqueado: !!u.bloqueado, nuevaPass: "" });
+  const guardarEdit = async () => {
+    setBusy(true);
+    try {
+      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol });
+      setEdit(null); fire("Usuario actualizado"); reload();
+    } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
+    finally { setBusy(false); }
+  };
+  const reset = async () => {
+    const np = edit.nuevaPass.trim() || "Cos2026*";
+    setBusy(true);
+    try { await resetPassword(edit.id, np); fire(`Clave temporal puesta: ${np}. La cambiará al entrar.`); setEdit({ ...edit, nuevaPass: "" }); reload(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setBusy(false); }
+  };
+  const toggleBloqueo = async () => {
+    setBusy(true);
+    try { await bloquearUsuario(edit.id, !edit.bloqueado); setEdit({ ...edit, bloqueado: !edit.bloqueado }); fire(edit.bloqueado ? "Acceso desbloqueado" : "Acceso bloqueado"); reload(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setBusy(false); }
+  };
+
   return (
     <>
       <div className="card nopad">
         <div className="tblhead">
-          <div><div className="h2">Usuarios del equipo</div><div className="sub small">Crea accesos con usuario y contraseña genéricos. Las cédulas se guardan cifradas, no aquí.</div></div>
+          <div><div className="h2">Usuarios del equipo</div><div className="sub small">Crea accesos, edita rol/cargo/código, resetea claves y bloquea accesos. Las contraseñas se guardan cifradas — nadie las ve, ni tú.</div></div>
           <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
         </div>
         <div className="tblscroll">
           <table className="tbl">
-            <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Cargo</th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Usuario</th><th>Código</th><th>Rol</th><th>Cargo</th><th>Estado</th><th></th></tr></thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td className="bold nameCell"><span className="uava xsmall">{initials(u)}</span>{u.nombre} {u.apellido}</td>
-                  <td className="mono s12">{u.login}</td>
-                  <td><span className="chip neutral">{u.rol}</span></td>
-                  <td className="s12">{u.cargo}</td>
-                </tr>
-              ))}
+              {users.map((u) => {
+                const e = estadoUsuario(u);
+                return (
+                  <tr key={u.id}>
+                    <td className="bold nameCell"><span className="uava xsmall">{initials(u)}</span>{u.nombre} {u.apellido}</td>
+                    <td className="mono s12">{u.login}</td>
+                    <td className="mono s12">{u.code || <span className="faint">—</span>}</td>
+                    <td><span className="chip neutral">{u.rol}</span></td>
+                    <td className="s12">{u.cargo}</td>
+                    <td><span className={"chip " + e.cls}>{e.txt}</span></td>
+                    <td><button className="btn ghost sm" onClick={() => abrirEdit(u)}>Editar</button></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
       {modal && (
         <div className="overlay" onClick={() => setModal(false)}>
           <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
@@ -761,11 +800,11 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                 <div><label className="lbl">Apellido</label><input className="inp" value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
-                <div><label className="lbl">Usuario</label><input className="inp mono" value={f.login} placeholder="ej. jperez" onChange={(e) => setF({ ...f, login: e.target.value })} /></div>
-                <div><label className="lbl">Código operativo</label><input className="inp mono" value={f.code} placeholder="ej. ETBSOP236" onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
+                <div><label className="lbl">Usuario</label><input className="inp mono upper" value={f.login} placeholder="JPEREZ" onChange={(e) => setF({ ...f, login: e.target.value.toUpperCase() })} /></div>
+                <div><label className="lbl">Código operativo</label><input className="inp mono" value={f.code} placeholder="ETBSOP236" onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
-                <div><label className="lbl">Contraseña</label><input className="inp mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+                <div><label className="lbl">Contraseña temporal</label><input className="inp mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
                 <div><label className="lbl">Rol (permisos)</label>
                   <select className="inp" value={f.rol} onChange={(e) => setF({ ...f, rol: e.target.value as Rol })}>
                     {["agente", "senior", "coordinador", "superadmin"].map((r) => <option key={r} value={r}>{r}</option>)}
@@ -778,9 +817,49 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                   </select></div>
                 <div></div>
               </div>
-              <div className="sub tiny mt8">El <b>código operativo</b> (el Login de Salesforce/turnos, ej. ETBSOP236) sirve para emparejar a la persona con el Excel de horarios. Junior y Analista usan el rol <b>agente</b>.</div>
+              <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {edit && (
+        <div className="overlay" onClick={() => setEdit(null)}>
+          <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHead"><div className="h2">Editar usuario</div><button className="xbtn" onClick={() => setEdit(null)}><X size={16} /></button></div>
+            <div className="modalBody">
+              <div className="grid two">
+                <div><label className="lbl">Nombre</label><input className="inp" value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} /></div>
+                <div><label className="lbl">Apellido</label><input className="inp" value={edit.apellido} onChange={(e) => setEdit({ ...edit, apellido: e.target.value })} /></div>
+              </div>
+              <div className="grid two mt12">
+                <div><label className="lbl">Código operativo</label><input className="inp mono" value={edit.code} placeholder="ETBSOP236" onChange={(e) => setEdit({ ...edit, code: e.target.value })} /></div>
+                <div><label className="lbl">Rol (permisos)</label>
+                  <select className="inp" value={edit.rol} onChange={(e) => setEdit({ ...edit, rol: e.target.value })}>
+                    {["agente", "senior", "coordinador", "superadmin"].map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select></div>
+              </div>
+              <div className="mt12"><label className="lbl">Cargo (puesto real)</label>
+                <select className="inp" value={edit.cargo} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })}>
+                  {["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior"].map((c) => <option key={c} value={c}>{c}</option>)}
+                </select></div>
+
+              <div className="divider" />
+              <label className="lbl">Seguridad</label>
+              <div className="seglinea">
+                <div><div className="bold s13">Resetear contraseña</div><div className="sub tiny">Le pones una clave temporal; la cambiará al entrar.</div></div>
+              </div>
+              <div className="grid two mt8" style={{ marginTop: 8 }}>
+                <input className="inp mono" value={edit.nuevaPass} placeholder="Cos2026*" onChange={(e) => setEdit({ ...edit, nuevaPass: e.target.value })} />
+                <button className="btn ghost" disabled={busy} onClick={reset}>Resetear clave</button>
+              </div>
+              <div className="seglinea mt12" style={{ marginTop: 12 }}>
+                <div><div className="bold s13">{edit.bloqueado ? "Cuenta bloqueada" : "Acceso activo"}</div><div className="sub tiny">{edit.bloqueado ? "No puede iniciar sesión." : "Puede iniciar sesión normalmente."}</div></div>
+                <button className={"btn " + (edit.bloqueado ? "primary" : "ghost")} disabled={busy} onClick={toggleBloqueo}>{edit.bloqueado ? "Desbloquear" : "Bloquear"}</button>
+              </div>
+            </div>
+            <div className="modalFoot"><button className="btn ghost" onClick={() => setEdit(null)}>Cerrar</button><button className="btn primary" disabled={busy} onClick={guardarEdit}>{busy ? "Guardando…" : "Guardar cambios"}</button></div>
           </div>
         </div>
       )}

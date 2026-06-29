@@ -14,6 +14,9 @@ export interface Usuario {
   servicio: string | null;
   mesa: string | null;
   activo: boolean;
+  debe_cambiar_pass?: boolean;
+  bloqueado?: boolean;
+  pass_cambiada_at?: string | null;
 }
 
 export interface GestionTipo {

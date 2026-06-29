@@ -9,11 +9,18 @@ export async function login(_prev: unknown, formData: FormData) {
   if (!usuario || !password) return { error: "Escribe tu usuario y contraseña." };
 
   const sb = await createClient();
-  const { error } = await sb.auth.signInWithPassword({
+  const { data, error } = await sb.auth.signInWithPassword({
     email: loginToEmail(usuario),
     password,
   });
-  if (error) return { error: "Usuario o contraseña incorrectos." };
+  if (error || !data.user) return { error: "Usuario o contraseña incorrectos." };
+
+  // Bloqueo de cuenta
+  const { data: perfil } = await sb.from("usuarios").select("bloqueado").eq("id", data.user.id).single();
+  if (perfil?.bloqueado) {
+    await sb.auth.signOut();
+    return { error: "Tu cuenta está bloqueada. Contacta a tu coordinador." };
+  }
   redirect("/");
 }
 
