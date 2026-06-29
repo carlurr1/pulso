@@ -277,3 +277,10 @@ code{font-family:'JetBrains Mono',monospace;background:var(--surface-2);padding:
   .card{break-inside:avoid;box-shadow:none;border-color:#e5e5e5}
   .grid{display:grid}
 }
+
+/* ── Carga de horarios ── */
+.uploadlabel{cursor:pointer;display:block;transition:.15s}
+.uploadlabel:hover{border-color:var(--primary);background:#fff}
+.hidden-file{display:none}
+.okbox{background:var(--ok-50);color:var(--ok);border-radius:11px;padding:11px 13px;font-size:12.5px;font-weight:600}
+.errbox{background:var(--danger-50);color:var(--danger);border-radius:11px;padding:11px 13px;font-size:12.5px;font-weight:500}
