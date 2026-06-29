@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario } from "@/app/actions";
+import { crearUsuario, guardarHorarios } from "@/app/actions";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
 
@@ -718,13 +718,13 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [users, setUsers] = useState<Usuario[]>([]);
   const [modal, setModal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", cargo: "Agente", rol: "agente", password: "Cos2026*" });
+  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" });
   const reload = () => data.getUsuarios().then(setUsers);
   useEffect(() => { reload(); }, []);
   const add = async () => {
     if (!f.nombre.trim() || !f.login.trim()) return;
     setBusy(true);
-    try { await crearUsuario(f); setModal(false); setF({ nombre: "", apellido: "", login: "", cargo: "Agente", rol: "agente", password: "Cos2026*" }); fire("Usuario creado"); reload(); }
+    try { await crearUsuario(f); setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" }); fire("Usuario creado"); reload(); }
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo crear")); }
     finally { setBusy(false); }
   };
@@ -762,19 +762,23 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               </div>
               <div className="grid two mt12">
                 <div><label className="lbl">Usuario</label><input className="inp mono" value={f.login} placeholder="ej. jperez" onChange={(e) => setF({ ...f, login: e.target.value })} /></div>
-                <div><label className="lbl">Contraseña</label><input className="inp mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+                <div><label className="lbl">Código operativo</label><input className="inp mono" value={f.code} placeholder="ej. ETBSOP236" onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
+                <div><label className="lbl">Contraseña</label><input className="inp mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
                 <div><label className="lbl">Rol (permisos)</label>
                   <select className="inp" value={f.rol} onChange={(e) => setF({ ...f, rol: e.target.value as Rol })}>
                     {["agente", "senior", "coordinador", "superadmin"].map((r) => <option key={r} value={r}>{r}</option>)}
                   </select></div>
+              </div>
+              <div className="grid two mt12">
                 <div><label className="lbl">Cargo (puesto real)</label>
                   <select className="inp" value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })}>
                     {["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior"].map((c) => <option key={c} value={c}>{c}</option>)}
                   </select></div>
+                <div></div>
               </div>
-              <div className="sub tiny mt8">Junior y Analista usan el rol <b>agente</b> (misma pantalla de bandeja). El <b>cargo</b> es lo que separa las columnas del tablero por rol.</div>
+              <div className="sub tiny mt8">El <b>código operativo</b> (el Login de Salesforce/turnos, ej. ETBSOP236) sirve para emparejar a la persona con el Excel de horarios. Junior y Analista usan el rol <b>agente</b>.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
           </div>
@@ -784,16 +788,157 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   );
 }
 
+/* ── Lector del Excel de turnos (en el navegador) ── */
+const _norm = (s: any) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+function _parseDur(v: any): number {
+  if (v == null) return 0;
+  if (typeof v === "number") { if (v > 0 && v < 1) return Math.round(v * 1440); if (v >= 1 && v <= 24) return Math.round(v * 60); return 0; }
+  const m = String(v).trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  return m ? (+m[1]) * 60 + (+m[2]) : 0;
+}
+function _fmtHM(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === "number" && v >= 0 && v < 1) { const t = Math.round(v * 1440); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; }
+  const m = String(v).trim().match(/^(\d{1,2}):(\d{2})/);
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null;
+}
+function _turno(row: any[], thCol: number): string | null {
+  const t2 = row[thCol - 2];
+  if (typeof t2 === "string") { const r = t2.match(/\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}/); if (r) return r[0].replace(/\s/g, ""); }
+  const ent = _fmtHM(row[thCol - 3]); const sal = _fmtHM(row[thCol - 2]);
+  return ent && sal ? `${ent}-${sal}` : null;
+}
+const _addDays = (iso: string, d: number) => { const x = new Date(iso + "T12:00:00"); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
+const _mondayActual = () => { const d = new Date(); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return d.toISOString().slice(0, 10); };
+function _findUser(login: any, nom: any, ape: any, users: Usuario[]): Usuario | null {
+  const code = String(login ?? "").trim().toLowerCase();
+  if (code) { const byc = users.find((u) => u.code && String(u.code).trim().toLowerCase() === code); if (byc) return byc; }
+  const full = _norm(`${nom} ${ape}`);
+  let u = users.find((x) => _norm(`${x.nombre} ${x.apellido}`) === full); if (u) return u;
+  const exAp = _norm(ape).split(" ")[0]; const exNo = _norm(nom).split(" ")[0];
+  u = users.find((x) => { const an = _norm(x.apellido).split(" ")[0]; const nn = _norm(x.nombre).split(" ")[0]; return !!an && an === exAp && (nn === exNo || exNo.startsWith(nn) || nn.startsWith(exNo)); });
+  return u ?? null;
+}
+function _parseHoja(rows: any[][], monday: string, users: Usuario[]) {
+  let hr = -1, loginCol = -1, nombreCol = -1, apellidoCol = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const r = rows[i]; if (!r) continue;
+    const idx = r.findIndex((c) => _norm(c) === "login");
+    if (idx >= 0) { hr = i; loginCol = idx; nombreCol = r.findIndex((c) => _norm(c) === "nombre"); apellidoCol = r.findIndex((c) => _norm(c) === "apellido"); break; }
+  }
+  if (hr < 0) throw new Error("No encontré la fila de encabezados (con 'Login'). Revisa que sea la hoja de turnos.");
+  const thCols = rows[hr].map((c, i) => (_norm(c) === "th" ? i : -1)).filter((i) => i >= 0).slice(0, 7);
+  if (!thCols.length) throw new Error("No encontré columnas 'th' (horas trabajadas) en esta hoja.");
+  const filas: any[] = []; const matched = new Set<string>(); const sinMatch = new Set<string>();
+  for (let i = hr + 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const login = r[loginCol], nom = r[nombreCol], ape = r[apellidoCol];
+    if (!nom && !login) continue;
+    const u = _findUser(login, nom, ape, users);
+    if (!u) { sinMatch.add(String(nom || login).trim()); continue; }
+    thCols.forEach((tc, d) => {
+      const min = _parseDur(r[tc]); if (min <= 0) return;
+      filas.push({ user_id: u.id, fecha: _addDays(monday, d), turno: _turno(r, tc), almuerzo_min: 0, break_min: 15, disponible_min: min });
+      matched.add(u.id);
+    });
+  }
+  return { filas, personas: matched.size, sinMatch: [...sinMatch] };
+}
+
 function HorarioConfig() {
+  const [users, setUsers] = useState<Usuario[]>([]);
   const [filas, setFilas] = useState<any[]>([]);
-  useEffect(() => { data.getHorariosDia().then(setFilas); }, []);
+  const [hojas, setHojas] = useState<string[]>([]);
+  const [hoja, setHoja] = useState("");
+  const [wb, setWb] = useState<any>(null);
+  const [monday, setMonday] = useState(_mondayActual());
+  const [res, setRes] = useState<any>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [archivo, setArchivo] = useState("");
+
+  const cargarTabla = () => data.getHorariosDia().then(setFilas);
+  useEffect(() => { data.getUsuarios().then(setUsers); cargarTabla(); }, []);
+
+  const onFile = async (file: File) => {
+    setError(""); setRes(null); setArchivo(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const libro = XLSX.read(buf, { type: "array" });
+      setWb(libro); setHojas(libro.SheetNames);
+      // auto-elige la primera hoja con encabezado Login + th
+      let elegida = libro.SheetNames[0];
+      for (const sn of libro.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json<any[]>(libro.Sheets[sn], { header: 1, raw: true, defval: null });
+        const hasLogin = rows.slice(0, 10).some((r) => r?.some((c: any) => _norm(c) === "login"));
+        const hasTh = rows.slice(0, 10).some((r) => r?.some((c: any) => _norm(c) === "th"));
+        if (hasLogin && hasTh) { elegida = sn; break; }
+      }
+      setHoja(elegida);
+    } catch (e: any) { setError("No pude leer el archivo: " + (e?.message ?? "")); }
+  };
+
+  const procesar = () => {
+    setError(""); setRes(null);
+    try {
+      const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[hoja], { header: 1, raw: true, defval: null });
+      const out = _parseHoja(rows, monday, users);
+      if (!out.filas.length) { setError("No se generaron horarios. Revisa la hoja y que los nombres/códigos coincidan con tus usuarios."); return; }
+      setRes(out);
+    } catch (e: any) { setError(e?.message ?? "Error procesando el archivo"); }
+  };
+
+  const guardar = async () => {
+    if (!res?.filas?.length) return;
+    setBusy(true);
+    try { await guardarHorarios(res.filas); cargarTabla(); setRes({ ...res, guardado: true }); }
+    catch (e: any) { setError("Error al guardar: " + (e?.message ?? "")); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="grid horLayout">
       <div className="card selfstart">
-        <div className="h2 mb4">Carga de horarios</div>
-        <div className="sub small mb14">El horario semanal se carga desde el Excel de turnos con el script <code>import:horarios</code> (ver README). Aquí ves la disponibilidad ya calculada del día.</div>
-        <div className="uploadbox"><Upload size={26} className="uploadico" /><div className="uploadt">Formato: el mismo .xlsx de turnos actual</div><div className="sub tiny">Servicio · Mesa · Rol · Nombre · Login · turno · th</div></div>
+        <div className="h2 mb4">Cargar horarios desde Excel</div>
+        <div className="sub small mb14">Sube el mismo .xlsx de turnos. La app lee la columna <b>th</b> (horas trabajadas) de cada día y calcula el tiempo disponible. Empareja a cada persona por su <b>código</b> o, si no lo tiene, por su nombre.</div>
+
+        <label className="uploadbox uploadlabel">
+          <Upload size={26} className="uploadico" />
+          <div className="uploadt">{archivo || "Haz clic para elegir el .xlsx"}</div>
+          <div className="sub tiny">o arrástralo aquí</div>
+          <input type="file" accept=".xlsx,.xls" className="hidden-file" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+        </label>
+
+        {hojas.length > 0 && (
+          <div className="grid two mt12">
+            <div><label className="lbl">Hoja</label>
+              <select className="inp" value={hoja} onChange={(e) => { setHoja(e.target.value); setRes(null); }}>
+                {hojas.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select></div>
+            <div><label className="lbl">Lunes de la semana</label>
+              <input type="date" className="inp" value={monday} onChange={(e) => { setMonday(e.target.value); setRes(null); }} /></div>
+          </div>
+        )}
+
+        {wb && <button className="btn ghost mt12" onClick={procesar} style={{ width: "100%", justifyContent: "center" }}>Procesar archivo</button>}
+        {error && <div className="errbox mt12">{error}</div>}
+
+        {res && (
+          <div className="mt12">
+            <div className="okbox">✓ {res.filas.length} horarios listos para {res.personas} persona(s).</div>
+            {res.sinMatch.length > 0 && (
+              <div className="warnbox mt8" style={{ marginTop: 8 }}>
+                <AlertTriangle size={15} className="warnicon" />
+                <span>No emparejé a: {res.sinMatch.slice(0, 8).join(", ")}{res.sinMatch.length > 8 ? "…" : ""}. Agrega su <b>código operativo</b> al crear el usuario para que calce exacto.</span>
+              </div>
+            )}
+            {res.guardado
+              ? <div className="okbox mt8" style={{ marginTop: 8 }}>Horarios guardados. La productividad y la carga ya usan estos datos.</div>
+              : <button className="btn primary mt12" disabled={busy} onClick={guardar} style={{ width: "100%", justifyContent: "center", marginTop: 12 }}>{busy ? "Guardando…" : `Cargar ${res.filas.length} horarios`}</button>}
+          </div>
+        )}
       </div>
+
       <div className="card">
         <div className="h2 mb12">Disponibilidad de hoy (calculada)</div>
         {filas.length === 0 ? <div className="empty pad24">Aún no hay horarios cargados para hoy.</div> :
