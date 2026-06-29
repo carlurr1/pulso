@@ -1,5 +1,6 @@
 "use client";
 import { createClient } from "@/lib/supabase/client";
+import { enriquecerCasos } from "@/app/actions";
 import type { Asignacion, Gestion, GestionTipo, MetricaPersona, Usuario } from "@/lib/types";
 
 // ════════════════════════════════════════════════════════════════
@@ -71,6 +72,7 @@ export async function agregarCasoNuevo(opts: {
   }).select().single();
   if (error) throw error;
   await registrarGestion({ ...opts, asignacionId: a.id });
+  enriquecerCasos([opts.numeroCaso]).catch(() => {});
   return a as Asignacion;
 }
 
@@ -102,6 +104,8 @@ export async function repartirSeguimiento(opts: {
   const { error } = await sb.from("asignaciones")
     .upsert(filas, { onConflict: "fecha,user_id,numero_caso", ignoreDuplicates: true });
   if (error) throw error;
+  // Trae la foto del caso desde Salesforce en segundo plano (no bloquea la UI).
+  enriquecerCasos(opts.casos).catch(() => {});
 }
 
 export async function quitarAsignacion(id: string) {
@@ -129,6 +133,11 @@ export async function getGestionesPorTipo(fecha = hoy()) {
 export async function getTendencia(dias = 7) {
   const sb = createClient();
   const { data } = await sb.rpc("tendencia", { p_dias: dias });
+  return data ?? [];
+}
+export async function getMetricasPorCliente(dias = 7) {
+  const sb = createClient();
+  const { data } = await sb.rpc("metricas_por_cliente", { p_dias: dias });
   return data ?? [];
 }
 

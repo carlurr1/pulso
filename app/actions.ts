@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loginToEmail } from "@/lib/loginEmail";
+import { consultarCasos } from "@/lib/sfCaso";
 import type { Rol } from "@/lib/types";
 
 // Verifica que quien llama sea superadmin antes de cualquier acción sensible.
@@ -63,4 +64,25 @@ export async function guardarHorarios(filas: {
     .upsert(filas, { onConflict: "user_id,fecha" });
   if (error) throw new Error(error.message);
   return { insertados: filas.length };
+}
+
+// ── Enriquecer casos con datos de Salesforce (foto en casos_sf) ────
+//    Se llama al asignar o agregar casos. Es tolerante a fallos: si SF
+//    no está configurado o el caso no existe, no rompe el flujo principal.
+export async function enriquecerCasos(numeros: string[]) {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return { ok: false, reason: "sin-sesion" };
+  if (!process.env.SF_USERNAME) return { ok: false, reason: "sf-no-configurado" };
+  try {
+    const casos = await consultarCasos(numeros);
+    if (!casos.length) return { ok: true, encontrados: 0 };
+    const admin = createAdminClient();
+    const filas = casos.map((c) => ({ ...c, actualizado_at: new Date().toISOString() }));
+    const { error } = await admin.from("casos_sf").upsert(filas, { onConflict: "numero_caso" });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, encontrados: casos.length };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "error consultando Salesforce" };
+  }
 }

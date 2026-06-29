@@ -291,23 +291,23 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 }
 
 /* ════════════════ VISTA COORDINADOR ════════════════ */
-function CoordView() {
-  const [tab, setTab] = useState<"tablero" | "auditoria">("tablero");
+function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   const [personas, setPersonas] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
   const [tend, setTend] = useState<any[]>([]);
   const [gestDia, setGestDia] = useState<any[]>([]);
+  const [clientes, setClientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [p, r, t, te, g] = await Promise.all([
+        const [p, r, t, te, g, cl] = await Promise.all([
           data.getMetricasPersonas(), data.getMetricasPorRol(), data.getGestionesPorTipo(),
-          data.getTendencia(7), data.getGestionesDia(),
+          data.getTendencia(7), data.getGestionesDia(), data.getMetricasPorCliente(7),
         ]);
-        setPersonas(p); setRoles(r); setTipos(t); setTend(te); setGestDia(g);
+        setPersonas(p); setRoles(r); setTipos(t); setTend(te); setGestDia(g); setClientes(cl);
       } finally { setLoading(false); }
     })();
   }, []);
@@ -326,10 +326,9 @@ function CoordView() {
   return (
     <>
       <div className="row-between end">
-        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Tablero de operación</div></div>
-        <div className="rolepick">
-          <button className={"roleopt" + (tab === "tablero" ? " on" : "")} onClick={() => setTab("tablero")}>Tablero</button>
-          <button className={"roleopt" + (tab === "auditoria" ? " on" : "")} onClick={() => setTab("auditoria")}>Auditoría</button>
+        <div>
+          <div className="eyebrow">Coordinación · Mayoristas</div>
+          <div className="h1">{tab === "auditoria" ? "Auditoría de gestiones" : "Tablero de operación"}</div>
         </div>
       </div>
 
@@ -402,6 +401,28 @@ function CoordView() {
               </div>
             </div>
           </div>
+
+          <div className="card mt15">
+            <div className="h2 mb4">Top clientes por tiempo invertido <span className="sfbadge">Salesforce</span></div>
+            <div className="sub small mb12">Cruce del esfuerzo del equipo (minutos) con el cliente del caso. Útil para "¿con qué cliente nos demoramos más?".</div>
+            {clientes.length === 0 ? (
+              <div className="empty pad24">Aún no hay casos enriquecidos con Salesforce.<br />Se llenan a medida que se asignan/registran casos (requiere las variables SF_* en Vercel).</div>
+            ) : (
+              <table className="tbl">
+                <thead><tr><th>Cliente</th><th>Casos</th><th>Gestiones</th><th>Tiempo</th></tr></thead>
+                <tbody>
+                  {clientes.map((c, i) => (
+                    <tr key={i}>
+                      <td className="bold">{c.cliente}</td>
+                      <td className="mono">{c.casos}</td>
+                      <td className="mono">{c.gestiones}</td>
+                      <td className="mono bold primary">{(c.minutos / 60).toFixed(1)}h</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </>
       ) : <AuditTable gestiones={gestDia} />}
     </>
@@ -463,20 +484,19 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
   );
 }
 
-/* ════════════════ VISTA SUPERADMIN ════════════════ */
-function AdminView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[]; reloadCatalogo: () => void; fire: (m: string) => void }) {
-  const [tab, setTab] = useState("tablero");
+/* ════════════════ CONFIGURACIÓN (superadmin) ════════════════ */
+function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[]; reloadCatalogo: () => void; fire: (m: string) => void }) {
+  const [tab, setTab] = useState("gestiones");
   return (
     <>
       <div className="row-between end">
-        <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Centro de control</div></div>
+        <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Configuración</div></div>
         <div className="rolepick">
-          {[["tablero", "Tablero"], ["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"]].map(([k, l]) =>
+          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"]].map(([k, l]) =>
             <button key={k} className={"roleopt" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
       <div className="mt8">
-        {tab === "tablero" && <CoordView />}
         {tab === "gestiones" && <GestionConfig catalogo={catalogo} reload={reloadCatalogo} fire={fire} />}
         {tab === "usuarios" && <UserConfig fire={fire} />}
         {tab === "horarios" && <HorarioConfig />}
@@ -591,12 +611,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                 <div><label className="lbl">Contraseña</label><input className="inp mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
-                <div><label className="lbl">Rol</label>
+                <div><label className="lbl">Rol (permisos)</label>
                   <select className="inp" value={f.rol} onChange={(e) => setF({ ...f, rol: e.target.value as Rol })}>
                     {["agente", "senior", "coordinador", "superadmin"].map((r) => <option key={r} value={r}>{r}</option>)}
                   </select></div>
-                <div><label className="lbl">Cargo</label><input className="inp" value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })} /></div>
+                <div><label className="lbl">Cargo (puesto real)</label>
+                  <select className="inp" value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })}>
+                    {["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior"].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select></div>
               </div>
+              <div className="sub tiny mt8">Junior y Analista usan el rol <b>agente</b> (misma pantalla de bandeja). El <b>cargo</b> es lo que separa las columnas del tablero por rol.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
           </div>
@@ -637,9 +661,25 @@ function HorarioConfig() {
 }
 
 /* ════════════════ SHELL ════════════════ */
+type NavItem = { key: string; label: string; icon: any };
+const NAV: Record<Rol, NavItem[]> = {
+  agente: [{ key: "bandeja", label: "Mi bandeja", icon: Inbox }],
+  senior: [{ key: "repartir", label: "Repartir seguimiento", icon: CalendarRange }],
+  coordinador: [
+    { key: "tablero", label: "Tablero", icon: LayoutDashboard },
+    { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+  ],
+  superadmin: [
+    { key: "tablero", label: "Tablero", icon: LayoutDashboard },
+    { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "config", label: "Configuración", icon: Settings2 },
+  ],
+};
+
 export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [catalogo, setCatalogo] = useState<GestionTipo[]>([]);
   const [vista, setVista] = useState<Rol>(perfil.rol);
+  const [section, setSection] = useState<string>(NAV[perfil.rol][0].key);
   const [toast, setToast] = useState<string | null>(null);
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
@@ -648,12 +688,9 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";
   const greet = new Date().getHours() < 12 ? "Buenos días" : new Date().getHours() < 19 ? "Buenas tardes" : "Buenas noches";
 
-  const navItems: Record<string, [string, any][]> = {
-    agente: [["Mi bandeja", Inbox]],
-    senior: [["Repartir seguimiento", CalendarRange], ["Mi equipo", Users]],
-    coordinador: [["Tablero", LayoutDashboard], ["Auditoría", ShieldCheck]],
-    superadmin: [["Tablero", LayoutDashboard], ["Auditoría", ShieldCheck], ["Configuración", Settings2]],
-  };
+  // Cambiar de perspectiva (Admin/Coord/Senior/Agente) reinicia a su primera sección.
+  const cambiarVista = (r: Rol) => { setVista(r); setSection(NAV[r][0].key); };
+  const items = NAV[vista] ?? [];
 
   return (
     <div className="app">
@@ -663,7 +700,11 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           <div><div className="brandname">Pulso</div><div className="brandsub">Group COS · ETB Mayoristas</div></div>
         </div>
         <div className="navlbl">Operación</div>
-        {(navItems[vista] ?? []).map(([t, I], i) => <div key={t} className={"nav" + (i === 0 ? " on" : "")}><I size={17} /><span>{t}</span></div>)}
+        {items.map((it) => (
+          <button key={it.key} className={"nav" + (section === it.key ? " on" : "")} onClick={() => setSection(it.key)}>
+            <it.icon size={17} /><span>{it.label}</span>
+          </button>
+        ))}
         <div className="sidefoot">
           <div className="cosbadge col-start">
             <span className="cosbadge-lbl">Operación a cargo de</span>
@@ -681,7 +722,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {esPriv ? (
             <div className="rolepick">
               {(perfil.rol === "superadmin" ? (["superadmin", "coordinador", "senior", "agente"] as Rol[]) : (["coordinador", "senior", "agente"] as Rol[])).map((r) => (
-                <button key={r} className={"roleopt" + (vista === r ? " on" : "")} onClick={() => setVista(r)}>{({ superadmin: "Admin", coordinador: "Coord.", senior: "Senior", agente: "Agente" } as any)[r]}</button>
+                <button key={r} className={"roleopt" + (vista === r ? " on" : "")} onClick={() => cambiarVista(r)}>{({ superadmin: "Admin", coordinador: "Coord.", senior: "Senior", agente: "Agente" } as any)[r]}</button>
               ))}
             </div>
           ) : <div className="chip neutral">{perfil.cargo}</div>}
@@ -691,8 +732,10 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         <div className="content">
           {vista === "agente" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && <SeniorView perfil={perfil} fire={fire} />}
-          {vista === "coordinador" && <CoordView />}
-          {vista === "superadmin" && <AdminView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
+          {vista === "coordinador" && <CoordView tab={section === "auditoria" ? "auditoria" : "tablero"} />}
+          {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
+          {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
       </div>
       {toast && <div className="toast"><Check size={16} color="#2BD0C3" />{toast}</div>}
