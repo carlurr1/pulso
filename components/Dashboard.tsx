@@ -4,12 +4,13 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   LineChart, Line, Cell,
 } from "recharts";
+import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
 import { crearUsuario } from "@/app/actions";
 import { logout } from "@/app/login/actions";
@@ -21,6 +22,7 @@ const ICON: Record<Categoria, any> = {
   escal: ArrowUpRight, reunion: Users, interna: Settings2,
 };
 const hoy = () => new Date().toISOString().slice(0, 10);
+const todayISO = hoy;
 const initials = (u: { nombre: string; apellido?: string | null }) =>
   (u.nombre[0] + (u.apellido?.[0] ?? "")).toUpperCase();
 const firstLast = (n: string, a?: string | null) => `${n} ${(a ?? "").split(" ")[0]}`.trim();
@@ -53,7 +55,7 @@ function DemandChip({ level }: { level: string }) {
 }
 
 /* ════════════════ VISTA AGENTE ════════════════ */
-function AgentView({ perfil, catalogo, fire }: { perfil: Usuario; catalogo: GestionTipo[]; fire: (m: string) => void }) {
+function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: Usuario; catalogo: GestionTipo[]; fire: (m: string) => void; incluirSenior?: boolean }) {
   const [bandeja, setBandeja] = useState<any[]>([]);
   const [actividad, setActividad] = useState<any[]>([]);
   const [modal, setModal] = useState<any>(null);
@@ -156,18 +158,18 @@ function AgentView({ perfil, catalogo, fire }: { perfil: Usuario; catalogo: Gest
         </div>
       </div>
 
-      {modal && <RegistrarModal modal={modal} catalogo={catalogo} onClose={() => setModal(null)} onSave={onSave} />}
+      {modal && <RegistrarModal modal={modal} catalogo={catalogo} incluirSenior={incluirSenior} onClose={() => setModal(null)} onSave={onSave} />}
     </>
   );
 }
 
-function RegistrarModal({ modal, catalogo, onClose, onSave }: any) {
+function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = false }: any) {
   const [tipoId, setTipoId] = useState<string | null>(null);
   const [caso, setCaso] = useState<string>(modal.asignacion?.numero_caso ?? "");
   const [min, setMin] = useState<string>("");
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
-  const tipos = catalogo.filter((g: GestionTipo) => g.activo && !g.senior_only);
+  const tipos = catalogo.filter((g: GestionTipo) => g.activo && (incluirSenior || !g.senior_only));
   const valid = tipoId && caso.trim() && min && +min > 0;
   const title = modal.nuevo ? "Agregar caso nuevo" : modal.libre ? "Gestión sin caso asignado" : "Registrar gestión";
 
@@ -290,64 +292,139 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   );
 }
 
-/* ════════════════ VISTA COORDINADOR ════════════════ */
+/* ════════════════ utilidades de rango y exportación ════════════════ */
+const isoHace = (dias: number) => { const d = new Date(); d.setDate(d.getDate() - dias); return d.toISOString().slice(0, 10); };
+const fmtFecha = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
+const horas = (min: number) => (min / 60).toFixed(1) + "h";
+
+function RangoFechas({ desde, hasta, setDesde, setHasta }: any) {
+  const preset = (d: number) => { setDesde(isoHace(d)); setHasta(todayISO()); };
+  return (
+    <div className="rango no-print">
+      <div className="rolepick">
+        <button className="roleopt" onClick={() => preset(0)}>Hoy</button>
+        <button className="roleopt" onClick={() => preset(6)}>7 días</button>
+        <button className="roleopt" onClick={() => preset(29)}>30 días</button>
+      </div>
+      <input type="date" className="inp dateinp" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} />
+      <span className="faint">→</span>
+      <input type="date" className="inp dateinp" value={hasta} min={desde} max={todayISO()} onChange={(e) => setHasta(e.target.value)} />
+    </div>
+  );
+}
+
+function exportarExcel(nombre: string, hojas: { nombre: string; filas: any[] }[]) {
+  const wb = XLSX.utils.book_new();
+  hojas.forEach((h) => {
+    const ws = XLSX.utils.json_to_sheet(h.filas.length ? h.filas : [{ "": "Sin datos" }]);
+    XLSX.utils.book_append_sheet(wb, ws, h.nombre.slice(0, 31));
+  });
+  XLSX.writeFile(wb, `${nombre}.xlsx`);
+}
+
+/* ════════════════ VISTA COORDINADOR / TABLERO 360 ════════════════ */
 function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
-  const [personas, setPersonas] = useState<any[]>([]);
+  const [desde, setDesde] = useState(isoHace(6));
+  const [hasta, setHasta] = useState(todayISO());
+  const [kpis, setKpis] = useState<any>(null);
+  const [ranking, setRanking] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
   const [tend, setTend] = useState<any[]>([]);
-  const [gestDia, setGestDia] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
+  const [tiposCaso, setTiposCaso] = useState<any[]>([]);
+  const [gestDia, setGestDia] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let vivo = true;
     (async () => {
+      setLoading(true);
       try {
-        const [p, r, t, te, g, cl] = await Promise.all([
-          data.getMetricasPersonas(), data.getMetricasPorRol(), data.getGestionesPorTipo(),
-          data.getTendencia(7), data.getGestionesDia(), data.getMetricasPorCliente(7),
+        const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
+          data.gKpis(desde, hasta), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
+          data.gPorTipo(desde, hasta), data.gTendencia(desde, hasta), data.gPorCliente(desde, hasta),
+          data.gPorTipoCaso(desde, hasta), data.getGestionesDia(),
         ]);
-        setPersonas(p); setRoles(r); setTipos(t); setTend(te); setGestDia(g); setClientes(cl);
-      } finally { setLoading(false); }
+        if (!vivo) return;
+        setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTiposCaso(tc); setGestDia(gd);
+      } finally { if (vivo) setLoading(false); }
     })();
-  }, []);
+    return () => { vivo = false; };
+  }, [desde, hasta]);
 
-  const totAsg = personas.reduce((s, p) => s + (p.asignados ?? 0), 0);
-  const totDone = personas.reduce((s, p) => s + (p.gestionados ?? 0), 0);
-  const efTeam = totAsg ? Math.round((totDone / totAsg) * 100) : 0;
-  const prTeam = personas.length ? Math.round(personas.reduce((s, p) => s + (p.productividad ?? 0), 0) / personas.length) : 0;
-  const alertas = gestDia.filter((g) => g.gestiones_catalogo && g.minutos > g.gestiones_catalogo.umbral_min * 1.8);
   const porTipo = tipos.map((t) => ({ nombre: t.nombre.length > 22 ? t.nombre.slice(0, 20) + "…" : t.nombre, n: t.total, color: CATS[t.categoria as Categoria].color })).slice(0, 8);
-  const tline = tend.map((d) => ({ dia: dayLabel(d.dia), gestiones: d.total }));
-  const roleData = roles.map((r) => ({ rol: r.rol, efectividad: r.efectividad, productividad: r.productividad }));
+  const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), gestiones: d.gestiones, horas: +(d.minutos / 60).toFixed(1) }));
+  const roleData = roles.map((r) => ({ rol: r.rol, efectividad: r.efectividad ?? 0, carga: r.carga ?? 0 }));
+  const maxCli = Math.max(1, ...clientes.map((c) => c.minutos));
 
-  if (loading) return <div className="card mt20"><div className="empty">Cargando métricas…</div></div>;
+  const exportar = () => exportarExcel(`Pulso_${desde}_a_${hasta}`, [
+    { nombre: "Resumen", filas: kpis ? [{ Desde: desde, Hasta: hasta, "Efectividad %": kpis.efectividad, "Productividad %": kpis.productividad, Gestiones: kpis.gestiones, "Tiempo (h)": +(kpis.minutos / 60).toFixed(1), Asignados: kpis.asignados, Gestionados: kpis.gestionados, Alertas: kpis.alertas }] : [] },
+    { nombre: "Ranking", filas: ranking.map((r) => ({ Persona: firstLast(r.nombre, r.apellido), Cargo: r.cargo, Gestiones: r.gestiones, "Tiempo (h)": +(r.minutos / 60).toFixed(1), "Efectividad %": r.efectividad, "Carga %": r.carga })) },
+    { nombre: "Por tipo", filas: tipos.map((t) => ({ Gestión: t.nombre, Cantidad: t.total, "Tiempo (h)": +(t.minutos / 60).toFixed(1) })) },
+    { nombre: "Clientes", filas: clientes.map((c) => ({ Cliente: c.cliente, Casos: c.casos, Gestiones: c.gestiones, "Tiempo (h)": +(c.minutos / 60).toFixed(1) })) },
+  ]);
+
+  if (tab === "auditoria") {
+    return (
+      <>
+        <div className="row-between end"><div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Auditoría de gestiones</div></div></div>
+        <AuditTable gestiones={gestDia} />
+      </>
+    );
+  }
 
   return (
-    <>
+    <div id="reporte">
       <div className="row-between end">
-        <div>
-          <div className="eyebrow">Coordinación · Mayoristas</div>
-          <div className="h1">{tab === "auditoria" ? "Auditoría de gestiones" : "Tablero de operación"}</div>
+        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Tablero de operación</div></div>
+        <div className="toolbar no-print">
+          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+          <button className="btn ghost sm" onClick={exportar}><Download size={14} />Excel</button>
+          <button className="btn ghost sm" onClick={() => window.print()}><Printer size={14} />PDF</button>
         </div>
       </div>
+      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}</span></div>
 
-      {tab === "tablero" ? (
+      {loading ? <div className="card mt20"><div className="empty">Cargando métricas…</div></div> : (
         <>
-          <div className="grid four mt20">
-            <Stat icon={TrendingUp} value={efTeam + "%"} label="Efectividad del equipo hoy" color="#0098D6" pct={efTeam} />
-            <Stat icon={Activity} value={prTeam + "%"} label="Productividad promedio" color="#6D5AE6" pct={prTeam} />
-            <Stat icon={Check} value={`${totDone}/${totAsg}`} label="Casos gestionados / asignados" color="#26B07A" pct={totAsg ? (totDone / totAsg) * 100 : 0} />
-            <Stat icon={AlertTriangle} value={alertas.length} label="Alertas de auditoría" color="#F2A33C" />
+          <div className="grid six mt16">
+            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad" color="#0098D6" pct={kpis?.efectividad ?? 0} />
+            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0} />
+            <Stat icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#26B07A" pct={kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0} />
+            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones totales" color="#14B8C4" />
+            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo registrado" color="#D858A0" />
+            <Stat icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C" />
           </div>
+
+          <div className="card mt15">
+            <div className="row-between mb12"><div><div className="h2">Ranking del equipo</div><div className="sub small">Comparación por persona en el periodo. Ordenado por tiempo trabajado.</div></div></div>
+            <div className="tblscroll">
+              <table className="tbl">
+                <thead><tr><th>#</th><th>Persona</th><th>Cargo</th><th>Gestiones</th><th>Tiempo</th><th>Efectividad</th><th>Carga</th></tr></thead>
+                <tbody>
+                  {ranking.filter((r) => r.gestiones > 0 || r.asignados > 0).map((r, i) => (
+                    <tr key={r.user_id}>
+                      <td className="mono soft">{i + 1}</td>
+                      <td className="bold">{firstLast(r.nombre, r.apellido)}</td>
+                      <td><span className="chip neutral">{r.cargo}</span></td>
+                      <td className="mono">{r.gestiones}</td>
+                      <td className="mono bold">{horas(r.minutos)}</td>
+                      <td className="mono">{r.efectividad != null ? r.efectividad + "%" : "—"}</td>
+                      <td>{r.carga != null ? <span className={"chip " + (r.carga >= 90 ? "alto" : r.carga >= 35 ? "bajo" : "sin")}>{r.carga}%</span> : <span className="faint">—</span>}</td>
+                    </tr>
+                  ))}
+                  {ranking.every((r) => !r.gestiones && !r.asignados) && <tr><td colSpan={7}><div className="empty pad24">Sin actividad en el periodo seleccionado.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="grid two mt15">
             <div className="card">
-              <div className="h2 mb4">Efectividad y productividad por rol</div>
-              <div className="sub small mb10">¿Quién rinde más: agentes, juniors o analistas?</div>
-              <div className="legend">
-                <span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span>
-                <span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span>
-              </div>
+              <div className="h2 mb4">Efectividad y carga por rol</div>
+              <div className="sub small mb10">¿Quién rinde más y quién está más cargado: agentes, juniors o analistas?</div>
+              <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#F2A33C" }} />Carga</span></div>
               <ResponsiveContainer width="100%" height={230}>
                 <BarChart data={roleData} margin={{ left: -16 }}>
                   <CartesianGrid vertical={false} stroke="#EEF1F6" />
@@ -355,12 +432,12 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                   <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} unit="%" />
                   <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
                   <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={28} />
-                  <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[5, 5, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="carga" name="Carga" fill="#F2A33C" radius={[5, 5, 0, 0]} maxBarSize={28} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="card">
-              <div className="h2 mb4">Gestiones por tipo · hoy</div>
+              <div className="h2 mb4">Gestiones por tipo</div>
               <div className="sub small mb10">En qué se está yendo el trabajo del equipo.</div>
               <ResponsiveContainer width="100%" height={230}>
                 <BarChart data={porTipo} layout="vertical" margin={{ left: 8 }}>
@@ -368,64 +445,141 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                   <XAxis type="number" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
                   <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                  <Bar dataKey="n" name="Gestiones" radius={[0, 5, 5, 0]} maxBarSize={18}>
-                    {porTipo.map((e, i) => <Cell key={i} fill={e.color} />)}
-                  </Bar>
+                  <Bar dataKey="n" name="Gestiones" radius={[0, 5, 5, 0]} maxBarSize={18}>{porTipo.map((e, i) => <Cell key={i} fill={e.color} />)}</Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="grid tendLayout mt15">
+
+          <div className="card mt15">
+            <div className="h2 mb14">Evolución en el tiempo</div>
+            <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Gestiones</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Horas</span></div>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={tline} margin={{ left: -18 }}>
+                <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                <Line type="monotone" dataKey="gestiones" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="horas" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="sub tiny mt6">Los fines de semana bajan por menor demanda entrante — es esperable, no es bajo rendimiento.</div>
+          </div>
+
+          <div className="grid two mt15">
             <div className="card">
-              <div className="h2 mb14">Tendencia de la última semana</div>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={tline} margin={{ left: -18 }}>
-                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                  <Line type="monotone" dataKey="gestiones" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 3, fill: "#0098D6" }} activeDot={{ r: 5 }} />
-                </LineChart>
-              </ResponsiveContainer>
-              <div className="sub tiny mt6">Los fines de semana bajan por menor demanda entrante — es esperable, no es bajo rendimiento.</div>
+              <div className="h2 mb4">Top clientes por tiempo <span className="sfbadge">Salesforce</span></div>
+              <div className="sub small mb12">¿Con qué cliente nos demoramos más?</div>
+              {clientes.length === 0 ? <div className="empty pad24">Sin casos enriquecidos con Salesforce todavía.</div> :
+                <div className="col9">
+                  {clientes.slice(0, 8).map((c, i) => (
+                    <div key={i}>
+                      <div className="row-between mb5"><span className="pname">{c.cliente}</span><span className="mono soft s12">{horas(c.minutos)} · {c.casos} casos</span></div>
+                      <div className="prog"><div className="progfill" style={{ width: (c.minutos / maxCli) * 100 + "%", background: "var(--primary)" }} /></div>
+                    </div>
+                  ))}
+                </div>}
             </div>
             <div className="card">
-              <div className="h2 mb12">Productividad contextualizada</div>
-              <div className="col11">
-                {personas.slice(0, 6).map((p) => (
-                  <div key={p.user_id}>
-                    <div className="row-between mb5"><span className="pname">{firstLast(p.nombre, p.apellido)}</span><DemandChip level={p.demanda} /></div>
-                    <div className="prog"><div className="progfill" style={{ width: (p.productividad ?? 0) + "%", background: (p.productividad ?? 0) >= 60 ? "var(--primary)" : "var(--warn)" }} /></div>
-                  </div>
-                ))}
-              </div>
+              <div className="h2 mb4">Tiempo por tipo de caso <span className="sfbadge">Salesforce</span></div>
+              <div className="sub small mb12">Qué clase de caso consume más horas.</div>
+              {tiposCaso.length === 0 ? <div className="empty pad24">Sin datos de Salesforce todavía.</div> :
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={tiposCaso.map((t) => ({ nombre: (t.etiqueta || "").slice(0, 20), h: +(t.minutos / 60).toFixed(1) }))} layout="vertical" margin={{ left: 8 }}>
+                    <CartesianGrid horizontal={false} stroke="#EEF1F6" />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} unit="h" />
+                    <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                    <Bar dataKey="h" name="Horas" fill="#14B8C4" radius={[0, 5, 5, 0]} maxBarSize={16} />
+                  </BarChart>
+                </ResponsiveContainer>}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════ RESUMEN EJECUTIVO (para dirección) ════════════════ */
+function ResumenView() {
+  const [desde, setDesde] = useState(isoHace(6));
+  const [hasta, setHasta] = useState(todayISO());
+  const [kpis, setKpis] = useState<any>(null);
+  const [ranking, setRanking] = useState<any[]>([]);
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [tipos, setTipos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [k, rk, cl, tp] = await Promise.all([
+          data.gKpis(desde, hasta), data.gRanking(desde, hasta), data.gPorCliente(desde, hasta), data.gPorTipo(desde, hasta),
+        ]);
+        if (!vivo) return; setKpis(k); setRanking(rk); setClientes(cl); setTipos(tp);
+      } finally { if (vivo) setLoading(false); }
+    })();
+    return () => { vivo = false; };
+  }, [desde, hasta]);
+
+  const top = [...ranking].filter((r) => r.gestiones > 0).slice(0, 3);
+  const topCliente = clientes[0];
+  const topTipo = tipos[0];
+
+  return (
+    <div id="reporte">
+      <div className="row-between end">
+        <div><div className="eyebrow">Resumen ejecutivo · Group COS para ETB</div><div className="h1">Operación Mayoristas</div></div>
+        <div className="toolbar no-print">
+          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+          <button className="btn primary sm" onClick={() => window.print()}><Printer size={14} />Exportar PDF</button>
+        </div>
+      </div>
+      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}</span></div>
+
+      {loading ? <div className="card mt20"><div className="empty">Preparando resumen…</div></div> : (
+        <>
+          <div className="grid four mt16">
+            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad del equipo" color="#0098D6" pct={kpis?.efectividad ?? 0} />
+            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0} />
+            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A" />
+            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4" />
+          </div>
+
+          <div className="grid three mt15">
+            <div className="card">
+              <div className="eyebrow mb12">Top desempeño</div>
+              {top.length === 0 ? <div className="sub">Sin datos.</div> : top.map((r, i) => (
+                <div key={r.user_id} className="podio">
+                  <span className={"podionum p" + i}>{i + 1}</span>
+                  <div className="grow"><div className="pname">{firstLast(r.nombre, r.apellido)}</div><div className="sub tiny">{r.cargo}</div></div>
+                  <div className="mono bold primary">{horas(r.minutos)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <div className="eyebrow mb12">Cliente que más demanda <span className="sfbadge">SF</span></div>
+              {topCliente ? <><div className="bignum">{topCliente.cliente}</div><div className="sub">{horas(topCliente.minutos)} en {topCliente.casos} caso(s)</div></> : <div className="sub">Sin datos de Salesforce.</div>}
+            </div>
+            <div className="card">
+              <div className="eyebrow mb12">Gestión más frecuente</div>
+              {topTipo ? <><div className="bignum">{topTipo.nombre}</div><div className="sub">{topTipo.total} veces · {horas(topTipo.minutos)}</div></> : <div className="sub">Sin datos.</div>}
             </div>
           </div>
 
           <div className="card mt15">
-            <div className="h2 mb4">Top clientes por tiempo invertido <span className="sfbadge">Salesforce</span></div>
-            <div className="sub small mb12">Cruce del esfuerzo del equipo (minutos) con el cliente del caso. Útil para "¿con qué cliente nos demoramos más?".</div>
-            {clientes.length === 0 ? (
-              <div className="empty pad24">Aún no hay casos enriquecidos con Salesforce.<br />Se llenan a medida que se asignan/registran casos (requiere las variables SF_* en Vercel).</div>
-            ) : (
-              <table className="tbl">
-                <thead><tr><th>Cliente</th><th>Casos</th><th>Gestiones</th><th>Tiempo</th></tr></thead>
-                <tbody>
-                  {clientes.map((c, i) => (
-                    <tr key={i}>
-                      <td className="bold">{c.cliente}</td>
-                      <td className="mono">{c.casos}</td>
-                      <td className="mono">{c.gestiones}</td>
-                      <td className="mono bold primary">{(c.minutos / 60).toFixed(1)}h</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <div className="eyebrow mb12">Cumplimiento de la bandeja</div>
+            <div className="row-between mb6"><span className="sub">Casos gestionados de los asignados</span><span className="mono bold">{kpis?.gestionados ?? 0} / {kpis?.asignados ?? 0}</span></div>
+            <div className="prog big"><div className="progfill" style={{ width: (kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0) + "%", background: "var(--ok)" }} /></div>
+            <div className="sub tiny mt8">Generado por Pulso · Group COS — {new Date().toLocaleDateString("es-CO")}</div>
           </div>
         </>
-      ) : <AuditTable gestiones={gestDia} />}
-    </>
+      )}
+    </div>
   );
 }
 
@@ -664,14 +818,19 @@ function HorarioConfig() {
 type NavItem = { key: string; label: string; icon: any };
 const NAV: Record<Rol, NavItem[]> = {
   agente: [{ key: "bandeja", label: "Mi bandeja", icon: Inbox }],
-  senior: [{ key: "repartir", label: "Repartir seguimiento", icon: CalendarRange }],
+  senior: [
+    { key: "repartir", label: "Repartir seguimiento", icon: CalendarRange },
+    { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+  ],
   coordinador: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
   ],
 };
@@ -731,10 +890,14 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
 
         <div className="content">
           {vista === "agente" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
-          {vista === "senior" && <SeniorView perfil={perfil} fire={fire} />}
-          {vista === "coordinador" && <CoordView tab={section === "auditoria" ? "auditoria" : "tablero"} />}
+          {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
+          {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
+          {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
+          {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
       </div>

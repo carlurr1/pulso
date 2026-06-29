@@ -141,6 +141,43 @@ export async function getMetricasPorCliente(dias = 7) {
   return data ?? [];
 }
 
+// ── Gerencial (rango de fechas) ───────────────────────────────────
+export async function gKpis(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_kpis", { p_desde: desde, p_hasta: hasta });
+  return (data?.[0]) ?? null;
+}
+export async function gRanking(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_ranking", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+export async function gPorRol(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_por_rol", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+export async function gPorTipo(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+export async function gTendencia(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_tendencia", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+export async function gPorCliente(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+export async function gPorTipoCaso(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_por_tipo_caso", { p_desde: desde, p_hasta: hasta });
+  return data ?? [];
+}
+
 // ── AUDITORÍA (vista coordinador) ─────────────────────────────────
 export async function getGestionesDia(fecha = hoy()) {
   const sb = createClient();

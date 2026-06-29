@@ -252,3 +252,28 @@ code{font-family:'JetBrains Mono',monospace;background:var(--surface-2);padding:
 .nav{font-family:inherit}
 .side .nav{width:100%;text-align:left;background:transparent}
 .sfbadge{font-size:9px;letter-spacing:.5px;text-transform:uppercase;font-weight:700;color:var(--accent);background:var(--accent-50);padding:2px 7px;border-radius:20px;vertical-align:middle;margin-left:6px}
+
+/* ── Tablero gerencial ── */
+.grid.six{grid-template-columns:repeat(6,1fr)}
+.grid.three{grid-template-columns:repeat(3,1fr)}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rango{display:flex;align-items:center;gap:8px}
+.dateinp{padding:7px 10px;width:auto;font-size:12.5px}
+.rango-print{display:none}
+.podio{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--surface-2)}
+.podio:last-child{border-bottom:none}
+.podionum{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-family:'Space Grotesk';font-weight:700;font-size:13px;color:#fff;flex-shrink:0;background:var(--ink-faint)}
+.podionum.p0{background:#F2A33C}.podionum.p1{background:#9AA7Bd}.podionum.p2{background:#C2855A}
+.bignum{font-family:'Space Grotesk';font-weight:700;font-size:20px;letter-spacing:-.4px;line-height:1.15;margin-bottom:4px}
+.prog.big{height:11px}
+@media (max-width:1100px){.grid.six{grid-template-columns:repeat(3,1fr)}.grid.three{grid-template-columns:1fr}}
+
+/* ── Impresión (Exportar PDF) ── */
+@media print{
+  .side,.topbar,.no-print{display:none!important}
+  .app,.main,.content{display:block;background:#fff}
+  .content{padding:0;max-width:100%}
+  .rango-print{display:block;margin-bottom:10px}
+  .card{break-inside:avoid;box-shadow:none;border-color:#e5e5e5}
+  .grid{display:grid}
+}
