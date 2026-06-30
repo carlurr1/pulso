@@ -1,15 +1,9 @@
 -- ════════════════════════════════════════════════════════════════
---  11 · Filtro por persona en las métricas gerenciales
---  Reemplaza las funciones g_* agregando un parámetro opcional p_user.
---  Si p_user es NULL → todo el equipo (como hasta ahora).
---  Ejecutar después de 07.
+--  13 · CORRECCIÓN — cifras del tablero en cero
+--  Arregla un choque de nombres ("minutos") que hacía fallar g_kpis,
+--  g_ranking y g_tendencia (por eso los KPIs y el ranking salían en 0).
+--  Ejecutar UNA vez. Es seguro: solo reemplaza funciones.
 -- ════════════════════════════════════════════════════════════════
-
-drop function if exists public.g_kpis(date, date);
-drop function if exists public.g_por_tipo(date, date);
-drop function if exists public.g_tendencia(date, date);
-drop function if exists public.g_por_cliente(date, date);
-drop function if exists public.g_por_tipo_caso(date, date);
 
 create or replace function public.g_kpis(p_desde date, p_hasta date, p_user uuid default null)
 returns table (gestiones int, minutos int, asignados int, gestionados int, efectividad int, productividad int, alertas int, personas int)
@@ -31,16 +25,29 @@ begin
     (select count(distinct g.user_id) from g)::int;
 end $$;
 
-create or replace function public.g_por_tipo(p_desde date, p_hasta date, p_user uuid default null)
-returns table (nombre text, categoria text, total int, minutos int)
+create or replace function public.g_ranking(p_desde date, p_hasta date)
+returns table (user_id uuid, nombre text, apellido text, cargo text, grupo text, gestiones int, minutos int, asignados int, gestionados int, efectividad int, disponible int, carga int)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if not public.es_privilegiado() then raise exception 'No autorizado'; end if;
   return query
-  select c.nombre, c.categoria, count(g.id)::int, coalesce(sum(g.minutos),0)::int
-  from gestiones g join gestiones_catalogo c on c.id=g.tipo_id
-  where g.fecha between p_desde and p_hasta and (p_user is null or g.user_id = p_user)
-  group by c.nombre, c.categoria order by count(g.id) desc;
+  select u.id, u.nombre, u.apellido, u.cargo,
+    case when u.cargo ilike '%senior%' then 'Senior' when u.cargo ilike '%analista%' then 'Analista'
+         when u.cargo ilike '%junior%' then 'Junior' else 'Agente' end,
+    coalesce((select count(*) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)::int,
+    coalesce((select sum(g.minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)::int,
+    coalesce((select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta),0)::int,
+    coalesce((select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta and a.estado='gestionado'),0)::int,
+    case when (select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta) > 0
+      then round(100.0*(select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta and a.estado='gestionado')
+                 /(select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta))::int else null end,
+    coalesce((select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta),0)::int,
+    case when coalesce((select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta),0) > 0
+      then least(150, round(100.0*coalesce((select sum(g.minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)
+                 /(select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta)))::int else null end
+  from usuarios u
+  where u.activo and u.rol in ('agente','senior')
+  order by 7 desc;
 end $$;
 
 create or replace function public.g_tendencia(p_desde date, p_hasta date, p_user uuid default null)
@@ -53,32 +60,4 @@ begin
     coalesce((select count(*) from gestiones g where g.fecha=d::date and (p_user is null or g.user_id=p_user)),0)::int,
     coalesce((select sum(g.minutos) from gestiones g where g.fecha=d::date and (p_user is null or g.user_id=p_user)),0)::int
   from generate_series(p_desde, p_hasta, interval '1 day') d order by d;
-end $$;
-
-create or replace function public.g_por_cliente(p_desde date, p_hasta date, p_user uuid default null)
-returns table (cliente text, casos int, gestiones int, minutos int)
-language plpgsql stable security definer set search_path = public as $$
-begin
-  if not public.es_privilegiado() then raise exception 'No autorizado'; end if;
-  return query
-  select coalesce(c.cliente,'(sin cliente)'),
-    count(distinct g.numero_caso)::int, count(*)::int, coalesce(sum(g.minutos),0)::int
-  from gestiones g left join casos_sf c on c.numero_caso=g.numero_caso
-  where g.fecha between p_desde and p_hasta and (p_user is null or g.user_id=p_user)
-  group by coalesce(c.cliente,'(sin cliente)')
-  order by sum(g.minutos) desc nulls last limit 15;
-end $$;
-
-create or replace function public.g_por_tipo_caso(p_desde date, p_hasta date, p_user uuid default null)
-returns table (etiqueta text, casos int, minutos int)
-language plpgsql stable security definer set search_path = public as $$
-begin
-  if not public.es_privilegiado() then raise exception 'No autorizado'; end if;
-  return query
-  select coalesce(c.tipo,'(sin tipo)'),
-    count(distinct g.numero_caso)::int, coalesce(sum(g.minutos),0)::int
-  from gestiones g join casos_sf c on c.numero_caso=g.numero_caso
-  where g.fecha between p_desde and p_hasta and (p_user is null or g.user_id=p_user)
-  group by coalesce(c.tipo,'(sin tipo)')
-  order by sum(g.minutos) desc nulls last limit 10;
 end $$;

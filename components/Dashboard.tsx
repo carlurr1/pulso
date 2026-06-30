@@ -1293,6 +1293,15 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     return () => { off?.(); };
   }, [perfil.id]);
   const cerrarAlerta = () => { if (alertaIn) data.marcarAlertaLeida(alertaIn.id); setAlertaIn(null); };
+
+  // PWA: captura el evento de instalación para mostrar un botón propio.
+  const [instalable, setInstalable] = useState<any>(null);
+  useEffect(() => {
+    const h = (e: any) => { e.preventDefault(); setInstalable(e); };
+    window.addEventListener("beforeinstallprompt", h);
+    return () => window.removeEventListener("beforeinstallprompt", h);
+  }, []);
+  const instalar = async () => { if (!instalable) return; instalable.prompt(); await instalable.userChoice; setInstalable(null); };
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); }, [toast]);
   const fire = (m: string) => setToast(m);
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";
@@ -1316,6 +1325,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           </button>
         ))}
         <div className="sidefoot">
+          {instalable && <button className="signout instbtn" onClick={instalar}><Download size={15} /><span>Instalar app</span></button>}
           <div className="cosbadge col-start">
             <span className="cosbadge-lbl">Operación a cargo de</span>
             <img src="/groupcos.png" alt="Group Cos" height={17} />

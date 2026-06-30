@@ -23,15 +23,15 @@ begin
   )
   select
     (select count(*) from g)::int,
-    (select coalesce(sum(minutos),0) from g)::int,
+    (select coalesce(sum(g.minutos),0) from g)::int,
     (select count(*) from a)::int,
-    (select count(*) from a where estado='gestionado')::int,
+    (select count(*) from a where a.estado='gestionado')::int,
     case when (select count(*) from a) > 0
-      then round(100.0*(select count(*) from a where estado='gestionado')/(select count(*) from a))::int else null end,
+      then round(100.0*(select count(*) from a where a.estado='gestionado')/(select count(*) from a))::int else null end,
     case when (select m from disp) > 0
-      then least(100, round(100.0*(select coalesce(sum(minutos),0) from g)/(select m from disp)))::int else null end,
+      then least(100, round(100.0*(select coalesce(sum(g.minutos),0) from g)/(select m from disp)))::int else null end,
     (select count(*) from g join gestiones_catalogo c on c.id=g.tipo_id where g.minutos > c.umbral_min*1.8)::int,
-    (select count(distinct user_id) from g)::int;
+    (select count(distinct g.user_id) from g)::int;
 end $$;
 
 -- ── Ranking de personas (comparación + carga + cumplimiento) ──────
@@ -50,7 +50,7 @@ begin
          when u.cargo ilike '%analista%' then 'Analista'
          when u.cargo ilike '%junior%' then 'Junior' else 'Agente' end,
     coalesce((select count(*) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)::int,
-    coalesce((select sum(minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)::int,
+    coalesce((select sum(g.minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)::int,
     coalesce((select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta),0)::int,
     coalesce((select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta and a.estado='gestionado'),0)::int,
     case when (select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta) > 0
@@ -58,7 +58,7 @@ begin
                  /(select count(*) from asignaciones a where a.user_id=u.id and a.fecha between p_desde and p_hasta))::int else null end,
     coalesce((select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta),0)::int,
     case when coalesce((select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta),0) > 0
-      then least(150, round(100.0*coalesce((select sum(minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)
+      then least(150, round(100.0*coalesce((select sum(g.minutos) from gestiones g where g.user_id=u.id and g.fecha between p_desde and p_hasta),0)
                  /(select sum(disponible_min) from horarios h where h.user_id=u.id and h.fecha between p_desde and p_hasta)))::int else null end
   from usuarios u
   where u.activo and u.rol in ('agente','senior')
@@ -102,7 +102,7 @@ begin
   return query
   select d::date,
     coalesce((select count(*) from gestiones g where g.fecha=d::date),0)::int,
-    coalesce((select sum(minutos) from gestiones g where g.fecha=d::date),0)::int
+    coalesce((select sum(g.minutos) from gestiones g where g.fecha=d::date),0)::int
   from generate_series(p_desde, p_hasta, interval '1 day') d
   order by d;
 end $$;
