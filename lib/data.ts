@@ -178,6 +178,57 @@ export async function gPorTipoCaso(desde: string, hasta: string) {
   return data ?? [];
 }
 
+// ── Presencia / sesiones ──────────────────────────────────────────
+export async function iniciarSesion(): Promise<string | null> {
+  const sb = createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data } = await sb.from("sesiones").insert({ user_id: user.id }).select("id").single();
+  return data?.id ?? null;
+}
+export async function latido(id: string) {
+  const sb = createClient();
+  await sb.from("sesiones").update({ ultimo_latido: new Date().toISOString() }).eq("id", id);
+}
+export async function cerrarSesion(id: string) {
+  const sb = createClient();
+  await sb.from("sesiones").update({ fin: new Date().toISOString() }).eq("id", id);
+}
+export async function getPresencia() {
+  const sb = createClient();
+  const { data } = await sb.rpc("presencia_hoy");
+  return data ?? [];
+}
+
+// ── Pausas (break / almuerzo) ─────────────────────────────────────
+export async function getPausaActiva(userId: string) {
+  const sb = createClient();
+  const { data } = await sb.from("pausas").select("*").eq("user_id", userId).eq("fecha", hoy()).is("fin", null).order("inicio", { ascending: false }).limit(1).maybeSingle();
+  return data;
+}
+export async function iniciarPausa(userId: string, tipo: "break" | "almuerzo") {
+  const sb = createClient();
+  // cierra cualquier pausa abierta antes de abrir otra
+  await sb.from("pausas").update({ fin: new Date().toISOString() }).eq("user_id", userId).eq("fecha", hoy()).is("fin", null);
+  const { error } = await sb.from("pausas").insert({ user_id: userId, tipo });
+  if (error) throw error;
+}
+export async function terminarPausa(userId: string) {
+  const sb = createClient();
+  const { error } = await sb.from("pausas").update({ fin: new Date().toISOString() }).eq("user_id", userId).eq("fecha", hoy()).is("fin", null);
+  if (error) throw error;
+}
+export async function getMiHorarioHoy(userId: string) {
+  const sb = createClient();
+  const { data } = await sb.from("horarios").select("*").eq("user_id", userId).eq("fecha", hoy()).maybeSingle();
+  return data;
+}
+export async function getHorariosSemana(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.from("horarios").select("*, usuarios(nombre, apellido, cargo)").gte("fecha", desde).lte("fecha", hasta).order("fecha");
+  return data ?? [];
+}
+
 // ── AUDITORÍA (vista coordinador) ─────────────────────────────────
 export async function getGestionesDia(fecha = hoy()) {
   const sb = createClient();

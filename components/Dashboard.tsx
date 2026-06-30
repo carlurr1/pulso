@@ -60,12 +60,32 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const [actividad, setActividad] = useState<any[]>([]);
   const [modal, setModal] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [turno, setTurno] = useState<any>(null);
+  const [pausa, setPausa] = useState<any>(null);
+  const [pausaBusy, setPausaBusy] = useState(false);
 
   const reload = async () => {
     const [b, a] = await Promise.all([data.getMiBandeja(perfil.id), data.getMiActividad(perfil.id)]);
     setBandeja(b); setActividad(a); setLoading(false);
   };
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+  const reloadTurno = async () => {
+    const [h, p] = await Promise.all([data.getMiHorarioHoy(perfil.id), data.getPausaActiva(perfil.id)]);
+    setTurno(h); setPausa(p);
+  };
+  useEffect(() => { reload(); reloadTurno(); /* eslint-disable-next-line */ }, []);
+
+  const salir = async (tipo: "break" | "almuerzo") => {
+    setPausaBusy(true);
+    try { await data.iniciarPausa(perfil.id, tipo); await reloadTurno(); fire(tipo === "break" ? "En break — tu tiempo está en pausa" : "En almuerzo — tu tiempo está en pausa"); }
+    catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setPausaBusy(false); }
+  };
+  const volver = async () => {
+    setPausaBusy(true);
+    try { await data.terminarPausa(perfil.id); await reloadTurno(); fire("¡De vuelta! Tu tiempo sigue contando."); }
+    catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setPausaBusy(false); }
+  };
 
   const pend = bandeja.filter((a) => a.estado !== "gestionado").length;
   const done = bandeja.filter((a) => a.estado === "gestionado").length;
@@ -98,7 +118,32 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         </div>
       </div>
 
-      <div className="grid two mt20 mb20">
+      <div className="card turnocard mt20">
+        <div className="turnoinfo">
+          <div className="turnoico"><Clock size={20} /></div>
+          <div>
+            <div className="eyebrow">Tu turno de hoy</div>
+            {turno ? (
+              <div className="turnotxt">{turno.turno ?? "—"} <span className="faint">·</span> disponible <b>{turno.disponible_min ? (turno.disponible_min / 60).toFixed(1) + "h" : "—"}</b></div>
+            ) : <div className="turnotxt faint">Tu turno aún no está cargado. Tu coordinador lo sube desde el Excel.</div>}
+          </div>
+        </div>
+        <div className="turnoacc">
+          {pausa ? (
+            <div className="enpausa">
+              <span className="pausachip"><CircleDot size={13} /> En {pausa.tipo === "almuerzo" ? "almuerzo" : "break"} desde {new Date(pausa.inicio).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+              <button className="btn primary sm" disabled={pausaBusy} onClick={volver}>Volví</button>
+            </div>
+          ) : (
+            <>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Salir a break</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Salir a almuerzo</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid two mt15 mb20">
         <div className="card tight statline">
           <div className="statIco big dangerbg"><Inbox size={20} /></div>
           <div><div className="statVal danger sm">{pend}</div><div className="statLbl">Por gestionar</div></div>
@@ -646,14 +691,15 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
       <div className="row-between end">
         <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Configuración</div></div>
         <div className="rolepick">
-          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"]].map(([k, l]) =>
+          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"], ["presencia", "Presencia"]].map(([k, l]) =>
             <button key={k} className={"roleopt" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
       <div className="mt8">
         {tab === "gestiones" && <GestionConfig catalogo={catalogo} reload={reloadCatalogo} fire={fire} />}
         {tab === "usuarios" && <UserConfig fire={fire} />}
-        {tab === "horarios" && <HorarioConfig />}
+        {tab === "horarios" && <><HorarioConfig /><HorarioSemana /></>}
+        {tab === "presencia" && <PresenciaView />}
       </div>
     </>
   );
@@ -803,7 +849,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                 <div><label className="lbl">Apellido</label><input className="inp" value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
-                <div><label className="lbl">Usuario</label><input className="inp mono upper" value={f.login} placeholder="JPEREZ" onChange={(e) => setF({ ...f, login: e.target.value.toUpperCase() })} /></div>
+                <div><label className="lbl">Usuario</label><input className="inp mono upper" value={f.login} placeholder="JDAVID" onChange={(e) => setF({ ...f, login: e.target.value.toUpperCase().replace(/[^A-Z0-9._-]/g, "") })} /></div>
                 <div><label className="lbl">Código operativo</label><input className="inp mono" value={f.code} placeholder="ETBSOP236" onChange={(e) => setF({ ...f, code: e.target.value })} /></div>
               </div>
               <div className="grid two mt12">
@@ -1041,6 +1087,93 @@ function HorarioConfig() {
   );
 }
 
+/* ════════════════ PRESENCIA (admin) ════════════════ */
+const fmtMin = (m: number) => { const h = Math.floor(m / 60); const r = m % 60; return h > 0 ? `${h}h ${r}m` : `${r}m`; };
+function PresenciaView() {
+  const [filas, setFilas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const cargar = () => data.getPresencia().then((d) => { setFilas(d); setLoading(false); });
+  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
+  const enLinea = filas.filter((f) => f.en_linea).length;
+
+  return (
+    <div className="card nopad">
+      <div className="tblhead">
+        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Tiempo que cada persona ha estado con la app abierta y cuánto break/almuerzo lleva. Se actualiza solo.</div></div>
+        <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
+      </div>
+      <div className="tblscroll">
+        <table className="tbl">
+          <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo logueado</th><th>En pausa</th></tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={6}><div className="empty">Cargando…</div></td></tr>}
+            {!loading && filas.map((f) => (
+              <tr key={f.user_id}>
+                <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
+                <td className="s12">{f.cargo}</td>
+                <td>{f.en_linea ? <span className="chip done"><span className="liveblip" /> En línea</span> : <span className="chip sin">Desconectado</span>}</td>
+                <td className="mono s12">{f.ultimo ? new Date(f.ultimo).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : <span className="faint">—</span>}</td>
+                <td className="mono bold primary">{fmtMin(f.minutos_logueado || 0)}</td>
+                <td className="mono s12">{f.minutos_pausa ? fmtMin(f.minutos_pausa) : <span className="faint">—</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════ HORARIO SEMANAL (bonito) ════════════════ */
+const DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+function HorarioSemana() {
+  const [monday, setMonday] = useState(_mondayActual());
+  const [filas, setFilas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    const hasta = _addDays(monday, 6);
+    data.getHorariosSemana(monday, hasta).then((d) => { setFilas(d); setLoading(false); });
+  }, [monday]);
+
+  const personas = useMemo(() => {
+    const map = new Map<string, any>();
+    filas.forEach((h: any) => {
+      const id = h.user_id;
+      if (!map.has(id)) map.set(id, { nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", dias: {} as any });
+      const d = (new Date(h.fecha + "T12:00:00").getDay() + 6) % 7;
+      map.get(id).dias[d] = h;
+    });
+    return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [filas]);
+
+  return (
+    <div className="card nopad mt15">
+      <div className="tblhead">
+        <div><div className="h2">Horario semanal · Mayoristas</div><div className="sub small">Turno de cada persona por día. Cámbiate de semana con la fecha.</div></div>
+        <input type="date" className="inp dateinp" value={monday} onChange={(e) => { const d = new Date(e.target.value + "T12:00:00"); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); setMonday(d.toISOString().slice(0, 10)); }} />
+      </div>
+      <div className="tblscroll">
+        {loading ? <div className="empty pad24">Cargando…</div> : personas.length === 0 ? <div className="empty pad24">No hay horarios cargados para esta semana.</div> :
+          <table className="tbl horsem">
+            <thead><tr><th className="stickyc">Persona</th>{DIAS.map((d, i) => <th key={i} className="diacol">{d}<br /><span className="faint tiny">{new Date(_addDays(monday, i) + "T12:00:00").getDate()}</span></th>)}</tr></thead>
+            <tbody>
+              {personas.map((p, i) => (
+                <tr key={i}>
+                  <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}</div></td>
+                  {DIAS.map((_, d) => {
+                    const h = p.dias[d];
+                    return <td key={d} className="diacell">{h ? <span className="turnopill">{h.turno ?? ((h.disponible_min / 60).toFixed(1) + "h")}</span> : <span className="descanso">—</span>}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════ SHELL ════════════════ */
 type NavItem = { key: string; label: string; icon: any };
 const NAV: Record<Rol, NavItem[]> = {
@@ -1069,6 +1202,19 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [toast, setToast] = useState<string | null>(null);
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
+
+  // Presencia: abre una sesión, late cada minuto y la cierra al salir.
+  useEffect(() => {
+    let id: string | null = null;
+    let timer: any;
+    (async () => {
+      id = await data.iniciarSesion();
+      if (id) timer = setInterval(() => data.latido(id!), 60000);
+    })();
+    const cerrar = () => { if (id) data.cerrarSesion(id); };
+    window.addEventListener("beforeunload", cerrar);
+    return () => { clearInterval(timer); window.removeEventListener("beforeunload", cerrar); cerrar(); };
+  }, []);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); }, [toast]);
   const fire = (m: string) => setToast(m);
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";
@@ -1082,7 +1228,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     <div className="app">
       <aside className="side">
         <div className="brand">
-          <div className="brandmark"><Activity size={21} color="#fff" /></div>
+          <div className="brandmark-logo"><img src="/pulso-mark.png" alt="Pulso" /></div>
           <div><div className="brandname">Pulso</div><div className="brandsub">Group COS · ETB Mayoristas</div></div>
         </div>
         <div className="navlbl">Operación</div>

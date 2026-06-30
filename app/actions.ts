@@ -1,7 +1,7 @@
 "use server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loginToEmail } from "@/lib/loginEmail";
+import { loginToEmail, slugLogin } from "@/lib/loginEmail";
 import { consultarCasos } from "@/lib/sfCaso";
 import type { Rol } from "@/lib/types";
 
@@ -27,6 +27,9 @@ export async function crearUsuario(input: {
   }
   if (!input.password || input.password.length < 6) {
     return { ok: false, error: "La contraseña temporal debe tener al menos 6 caracteres." };
+  }
+  if (!slugLogin(input.login)) {
+    return { ok: false, error: "El usuario debe tener letras o números (sin espacios ni símbolos). Ej: JDAVID o JUANDAVID." };
   }
   const admin = createAdminClient();
 
