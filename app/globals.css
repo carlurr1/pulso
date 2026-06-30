@@ -330,3 +330,15 @@ code{font-family:'JetBrains Mono',monospace;background:var(--surface-2);padding:
 .loginh{font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px;color:var(--ink)}
 .loginfoot{margin-top:20px;text-align:center}
 @media (max-width:860px){.loginsplit{grid-template-columns:1fr}.loginhero{display:none}}
+
+/* ── Alerta entrante (tiempo real) ── */
+.overlay.alta{z-index:200}
+.alertcard{background:#fff;border-radius:20px;padding:30px 28px;width:min(380px,92vw);text-align:center;box-shadow:0 24px 70px rgba(10,40,80,.32);animation:pop .22s ease}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.alertico{width:64px;height:64px;border-radius:50%;background:var(--primary-50);color:var(--primary);display:grid;place-items:center;margin:0 auto 16px;animation:ring 1s ease infinite}
+@keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(-12deg)}40%{transform:rotate(12deg)}60%{transform:rotate(-8deg)}80%{transform:rotate(8deg)}}
+.alerttitle{font-family:var(--display);font-weight:700;font-size:14px;color:var(--ink-soft);margin-bottom:8px}
+.alertmsg{font-size:18px;font-weight:600;color:var(--ink);line-height:1.4;margin-bottom:22px}
+.chipsrow{display:flex;flex-wrap:wrap;gap:7px}
+.quickmsg{font-size:11.5px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);border-radius:18px;padding:6px 11px;cursor:pointer;transition:.15s}
+.quickmsg:hover{border-color:var(--primary);color:var(--primary)}

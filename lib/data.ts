@@ -141,10 +141,10 @@ export async function getMetricasPorCliente(dias = 7) {
   return data ?? [];
 }
 
-// ── Gerencial (rango de fechas) ───────────────────────────────────
-export async function gKpis(desde: string, hasta: string) {
+// ── Gerencial (rango de fechas + persona opcional) ───────────────
+export async function gKpis(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_kpis", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_kpis", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return (data?.[0]) ?? null;
 }
 export async function gRanking(desde: string, hasta: string) {
@@ -157,24 +157,24 @@ export async function gPorRol(desde: string, hasta: string) {
   const { data } = await sb.rpc("g_por_rol", { p_desde: desde, p_hasta: hasta });
   return data ?? [];
 }
-export async function gPorTipo(desde: string, hasta: string) {
+export async function gPorTipo(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
-export async function gTendencia(desde: string, hasta: string) {
+export async function gTendencia(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_tendencia", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_tendencia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
-export async function gPorCliente(desde: string, hasta: string) {
+export async function gPorCliente(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
-export async function gPorTipoCaso(desde: string, hasta: string) {
+export async function gPorTipoCaso(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_tipo_caso", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_por_tipo_caso", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
 
@@ -227,6 +227,31 @@ export async function getHorariosSemana(desde: string, hasta: string) {
   const sb = createClient();
   const { data } = await sb.from("horarios").select("*, usuarios(nombre, apellido, cargo)").gte("fecha", desde).lte("fecha", hasta).order("fecha");
   return data ?? [];
+}
+
+// ── Alertas en tiempo real ────────────────────────────────────────
+export async function enviarAlerta(paraUserId: string, mensaje: string, deNombre: string) {
+  const sb = createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from("alertas").insert({ para_user_id: paraUserId, de_user_id: user?.id ?? null, de_nombre: deNombre, mensaje });
+  if (error) throw error;
+}
+export async function getAlertasNoLeidas(userId: string) {
+  const sb = createClient();
+  const { data } = await sb.from("alertas").select("*").eq("para_user_id", userId).eq("leida", false).order("created_at", { ascending: false });
+  return data ?? [];
+}
+export async function marcarAlertaLeida(id: string) {
+  const sb = createClient();
+  await sb.from("alertas").update({ leida: true }).eq("id", id);
+}
+export function suscribirAlertas(userId: string, onAlerta: (a: any) => void) {
+  const sb = createClient();
+  const ch = sb
+    .channel("alertas-" + userId)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "alertas", filter: `para_user_id=eq.${userId}` }, (payload) => onAlerta(payload.new))
+    .subscribe();
+  return () => { sb.removeChannel(ch); };
 }
 
 // ── AUDITORÍA (vista coordinador) ─────────────────────────────────

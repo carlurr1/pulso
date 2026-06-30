@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -379,24 +379,29 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   const [clientes, setClientes] = useState<any[]>([]);
   const [tiposCaso, setTiposCaso] = useState<any[]>([]);
   const [gestDia, setGestDia] = useState<any[]>([]);
+  const [equipo, setEquipo] = useState<any[]>([]);
+  const [persona, setPersona] = useState<string>("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => { data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior"))); }, []);
 
   useEffect(() => {
     let vivo = true;
     (async () => {
       setLoading(true);
+      const p = persona || null;
       try {
         const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
-          data.gKpis(desde, hasta), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
-          data.gPorTipo(desde, hasta), data.gTendencia(desde, hasta), data.gPorCliente(desde, hasta),
-          data.gPorTipoCaso(desde, hasta), data.getGestionesDia(),
+          data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
+          data.gPorTipo(desde, hasta, p), data.gTendencia(desde, hasta, p), data.gPorCliente(desde, hasta, p),
+          data.gPorTipoCaso(desde, hasta, p), data.getGestionesDia(),
         ]);
         if (!vivo) return;
         setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTiposCaso(tc); setGestDia(gd);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta]);
+  }, [desde, hasta, persona]);
 
   const porTipo = tipos.map((t) => ({ nombre: t.nombre.length > 22 ? t.nombre.slice(0, 20) + "…" : t.nombre, n: t.total, color: CATS[t.categoria as Categoria].color })).slice(0, 8);
   const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), gestiones: d.gestiones, horas: +(d.minutos / 60).toFixed(1) }));
@@ -424,12 +429,16 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       <div className="row-between end">
         <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Tablero de operación</div></div>
         <div className="toolbar no-print">
+          <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
+            <option value="">Todo el equipo</option>
+            {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
+          </select>
           <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
           <button className="btn ghost sm" onClick={exportar}><Download size={14} />Excel</button>
           <button className="btn ghost sm" onClick={() => window.print()}><Printer size={14} />PDF</button>
         </div>
       </div>
-      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}</span></div>
+      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}{persona ? " · " + (equipo.find((u) => u.id === persona)?.nombre ?? "") : ""}</span></div>
 
       {loading ? <div className="card mt20"><div className="empty">Cargando métricas…</div></div> : (
         <>
@@ -448,7 +457,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
               <table className="tbl">
                 <thead><tr><th>#</th><th>Persona</th><th>Cargo</th><th>Gestiones</th><th>Tiempo</th><th>Efectividad</th><th>Carga</th></tr></thead>
                 <tbody>
-                  {ranking.filter((r) => r.gestiones > 0 || r.asignados > 0).map((r, i) => (
+                  {ranking.filter((r) => (persona ? r.user_id === persona : (r.gestiones > 0 || r.asignados > 0))).map((r, i) => (
                     <tr key={r.user_id}>
                       <td className="mono soft">{i + 1}</td>
                       <td className="bold">{firstLast(r.nombre, r.apellido)}</td>
@@ -555,23 +564,28 @@ function ResumenView() {
   const [ranking, setRanking] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
+  const [equipo, setEquipo] = useState<any[]>([]);
+  const [persona, setPersona] = useState<string>("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => { data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior"))); }, []);
 
   useEffect(() => {
     let vivo = true;
     (async () => {
       setLoading(true);
+      const p = persona || null;
       try {
         const [k, rk, cl, tp] = await Promise.all([
-          data.gKpis(desde, hasta), data.gRanking(desde, hasta), data.gPorCliente(desde, hasta), data.gPorTipo(desde, hasta),
+          data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorCliente(desde, hasta, p), data.gPorTipo(desde, hasta, p),
         ]);
         if (!vivo) return; setKpis(k); setRanking(rk); setClientes(cl); setTipos(tp);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta]);
+  }, [desde, hasta, persona]);
 
-  const top = [...ranking].filter((r) => r.gestiones > 0).slice(0, 3);
+  const top = [...ranking].filter((r) => (persona ? r.user_id === persona : r.gestiones > 0)).slice(0, 3);
   const topCliente = clientes[0];
   const topTipo = tipos[0];
 
@@ -580,11 +594,15 @@ function ResumenView() {
       <div className="row-between end">
         <div><div className="eyebrow">Resumen ejecutivo · Group COS para ETB</div><div className="h1">Operación Mayoristas</div></div>
         <div className="toolbar no-print">
+          <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
+            <option value="">Todo el equipo</option>
+            {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
+          </select>
           <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
           <button className="btn primary sm" onClick={() => window.print()}><Printer size={14} />Exportar PDF</button>
         </div>
       </div>
-      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}</span></div>
+      <div className="rango-print"><span className="sub small">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}{persona ? " · " + (equipo.find((u) => u.id === persona)?.nombre ?? "") : ""}</span></div>
 
       {loading ? <div className="card mt20"><div className="empty">Preparando resumen…</div></div> : (
         <>
@@ -691,7 +709,7 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
       <div className="row-between end">
         <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Configuración</div></div>
         <div className="rolepick">
-          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"], ["presencia", "Presencia"]].map(([k, l]) =>
+          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"]].map(([k, l]) =>
             <button key={k} className={"roleopt" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
@@ -699,7 +717,6 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
         {tab === "gestiones" && <GestionConfig catalogo={catalogo} reload={reloadCatalogo} fire={fire} />}
         {tab === "usuarios" && <UserConfig fire={fire} />}
         {tab === "horarios" && <><HorarioConfig /><HorarioSemana /></>}
-        {tab === "presencia" && <PresenciaView />}
       </div>
     </>
   );
@@ -1089,24 +1106,40 @@ function HorarioConfig() {
 
 /* ════════════════ PRESENCIA (admin) ════════════════ */
 const fmtMin = (m: number) => { const h = Math.floor(m / 60); const r = m % 60; return h > 0 ? `${h}h ${r}m` : `${r}m`; };
-function PresenciaView() {
+function PresenciaView({ perfil }: { perfil: Usuario }) {
   const [filas, setFilas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [alerta, setAlerta] = useState<any>(null);   // { user, nombre }
+  const [msg, setMsg] = useState("Te necesito un momento, por favor.");
+  const [enviando, setEnviando] = useState(false);
+  const [okMsg, setOkMsg] = useState("");
   const cargar = () => data.getPresencia().then((d) => { setFilas(d); setLoading(false); });
   useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
   const enLinea = filas.filter((f) => f.en_linea).length;
 
+  const enviar = async () => {
+    if (!msg.trim()) return;
+    setEnviando(true);
+    try {
+      await data.enviarAlerta(alerta.user, msg.trim(), `${perfil.nombre} ${perfil.apellido ?? ""}`.trim());
+      setOkMsg(`Alerta enviada a ${alerta.nombre}.`); setAlerta(null);
+      setTimeout(() => setOkMsg(""), 3000);
+    } catch (e: any) { setOkMsg("Error: " + (e.message ?? "")); }
+    finally { setEnviando(false); }
+  };
+
   return (
     <div className="card nopad">
       <div className="tblhead">
-        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Tiempo que cada persona ha estado con la app abierta y cuánto break/almuerzo lleva. Se actualiza solo.</div></div>
+        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo logueado y break/almuerzo. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
         <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
       </div>
+      {okMsg && <div className="okbox" style={{ margin: "0 18px 12px" }}>{okMsg}</div>}
       <div className="tblscroll">
         <table className="tbl">
-          <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo logueado</th><th>En pausa</th></tr></thead>
+          <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo logueado</th><th>En pausa</th><th></th></tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={6}><div className="empty">Cargando…</div></td></tr>}
+            {loading && <tr><td colSpan={7}><div className="empty">Cargando…</div></td></tr>}
             {!loading && filas.map((f) => (
               <tr key={f.user_id}>
                 <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
@@ -1115,11 +1148,31 @@ function PresenciaView() {
                 <td className="mono s12">{f.ultimo ? new Date(f.ultimo).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : <span className="faint">—</span>}</td>
                 <td className="mono bold primary">{fmtMin(f.minutos_logueado || 0)}</td>
                 <td className="mono s12">{f.minutos_pausa ? fmtMin(f.minutos_pausa) : <span className="faint">—</span>}</td>
+                <td><button className="btn ghost sm" onClick={() => { setMsg("Te necesito un momento, por favor."); setAlerta({ user: f.user_id, nombre: `${f.nombre} ${f.apellido ?? ""}` }); }}><Bell size={13} />Alerta</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {alerta && (
+        <div className="overlay" onClick={() => setAlerta(null)}>
+          <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHead"><div className="h2">Enviar alerta a {alerta.nombre}</div><button className="xbtn" onClick={() => setAlerta(null)}><X size={16} /></button></div>
+            <div className="modalBody">
+              <div className="sub small mb12">Le llegará al instante en su pantalla.</div>
+              <div className="chipsrow">
+                {["Te necesito un momento, por favor.", "Llámame cuando puedas.", "Revisa tu bandeja, hay un caso urgente."].map((m) => (
+                  <button key={m} className="quickmsg" onClick={() => setMsg(m)}>{m}</button>
+                ))}
+              </div>
+              <label className="lbl mt12">Mensaje</label>
+              <textarea className="inp" rows={3} value={msg} maxLength={160} onChange={(e) => setMsg(e.target.value)} />
+            </div>
+            <div className="modalFoot"><button className="btn ghost" onClick={() => setAlerta(null)}>Cancelar</button><button className="btn primary" disabled={enviando} onClick={enviar}>{enviando ? "Enviando…" : "Enviar alerta"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1185,11 +1238,13 @@ const NAV: Record<Rol, NavItem[]> = {
   coordinador: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
   ],
@@ -1200,6 +1255,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [vista, setVista] = useState<Rol>(perfil.rol);
   const [section, setSection] = useState<string>(NAV[perfil.rol][0].key);
   const [toast, setToast] = useState<string | null>(null);
+  const [alertaIn, setAlertaIn] = useState<any>(null);
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
 
@@ -1215,6 +1271,28 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     window.addEventListener("beforeunload", cerrar);
     return () => { clearInterval(timer); window.removeEventListener("beforeunload", cerrar); cerrar(); };
   }, []);
+
+  // Alertas en tiempo real (las que me envía el admin/coordinador).
+  const beep = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.type = "sine"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      o.start(); o.stop(ctx.currentTime + 0.5);
+    } catch { /* sin sonido si el navegador lo bloquea */ }
+  };
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    (async () => {
+      const pend = await data.getAlertasNoLeidas(perfil.id);
+      if (pend.length) setAlertaIn(pend[0]);
+      off = data.suscribirAlertas(perfil.id, (a) => { setAlertaIn(a); beep(); });
+    })();
+    return () => { off?.(); };
+  }, [perfil.id]);
+  const cerrarAlerta = () => { if (alertaIn) data.marcarAlertaLeida(alertaIn.id); setAlertaIn(null); };
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); }, [toast]);
   const fire = (m: string) => setToast(m);
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";
@@ -1267,14 +1345,26 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
       </div>
       {toast && <div className="toast"><Check size={16} color="#2BD0C3" />{toast}</div>}
+      {alertaIn && (
+        <div className="overlay alta" onClick={cerrarAlerta}>
+          <div className="alertcard" onClick={(e) => e.stopPropagation()}>
+            <div className="alertico"><Bell size={30} /></div>
+            <div className="alerttitle">Alerta de {alertaIn.de_nombre || "Coordinación"}</div>
+            <div className="alertmsg">{alertaIn.mensaje}</div>
+            <button className="btn primary block" onClick={cerrarAlerta}>Entendido</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
