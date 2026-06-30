@@ -1294,14 +1294,21 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   }, [perfil.id]);
   const cerrarAlerta = () => { if (alertaIn) data.marcarAlertaLeida(alertaIn.id); setAlertaIn(null); };
 
-  // PWA: captura el evento de instalación para mostrar un botón propio.
+  // PWA: el aviso de instalación se captura temprano en el layout (window.__pwaPrompt).
   const [instalable, setInstalable] = useState<any>(null);
   useEffect(() => {
-    const h = (e: any) => { e.preventDefault(); setInstalable(e); };
-    window.addEventListener("beforeinstallprompt", h);
-    return () => window.removeEventListener("beforeinstallprompt", h);
+    const sync = () => setInstalable((window as any).__pwaPrompt ?? null);
+    sync();
+    window.addEventListener("pwa-available", sync);
+    window.addEventListener("appinstalled", sync);
+    return () => { window.removeEventListener("pwa-available", sync); window.removeEventListener("appinstalled", sync); };
   }, []);
-  const instalar = async () => { if (!instalable) return; instalable.prompt(); await instalable.userChoice; setInstalable(null); };
+  const instalar = async () => {
+    const p = (window as any).__pwaPrompt;
+    if (!p) return;
+    p.prompt(); await p.userChoice;
+    (window as any).__pwaPrompt = null; setInstalable(null);
+  };
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); }, [toast]);
   const fire = (m: string) => setToast(m);
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";

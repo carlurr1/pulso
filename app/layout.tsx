@@ -20,7 +20,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <script
           dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}`,
+            __html: `
+(function(){
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})});
+  }
+  // Captura el aviso de instalación apenas ocurre (antes de que monte React).
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault();
+    window.__pwaPrompt=e;
+    window.dispatchEvent(new Event('pwa-available'));
+  });
+  window.addEventListener('appinstalled',function(){window.__pwaPrompt=null;});
+})();
+`,
           }}
         />
       </body>
