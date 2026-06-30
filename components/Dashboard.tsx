@@ -730,10 +730,13 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   useEffect(() => { reload(); }, []);
 
   const add = async () => {
-    if (!f.nombre.trim() || !f.login.trim()) return;
+    if (!f.nombre.trim() || !f.login.trim()) { fire("Escribe al menos nombre y usuario."); return; }
     setBusy(true);
-    try { await crearUsuario(f); setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" }); fire("Usuario creado"); reload(); }
-    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo crear")); }
+    try {
+      const r = await crearUsuario(f);
+      if (!r.ok) { fire(r.error ?? "No se pudo crear el usuario."); return; }
+      setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" }); fire("Usuario creado"); reload();
+    } catch (e: any) { fire("Error inesperado: " + (e?.message ?? "")); }
     finally { setBusy(false); }
   };
 
