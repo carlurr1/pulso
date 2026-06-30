@@ -15,11 +15,19 @@ async function exigirAdmin() {
 }
 
 // ── Crear un usuario del equipo con su acceso genérico ─────────────
+//    Devuelve { ok, error } en vez de lanzar, para mostrar mensajes claros
+//    y no romper la pantalla.
 export async function crearUsuario(input: {
   login: string; nombre: string; apellido: string; rol: Rol;
   cargo: string; password: string; code?: string; documento?: string;
-}) {
-  await exigirAdmin();
+}): Promise<{ ok: boolean; id?: string; error?: string }> {
+  try { await exigirAdmin(); } catch { return { ok: false, error: "No autorizado. Vuelve a iniciar sesión como superadmin." }; }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { ok: false, error: "Falta configurar SUPABASE_SERVICE_ROLE_KEY en Vercel (Settings → Environment Variables)." };
+  }
+  if (!input.password || input.password.length < 6) {
+    return { ok: false, error: "La contraseña temporal debe tener al menos 6 caracteres." };
+  }
   const admin = createAdminClient();
 
   // 1) Crea la cuenta en Supabase Auth (email técnico, ya confirmado).
@@ -29,20 +37,30 @@ export async function crearUsuario(input: {
     email_confirm: true,
     user_metadata: { login: input.login },
   });
-  if (e1 || !authUser.user) throw new Error(e1?.message ?? "No se pudo crear el usuario");
+  if (e1 || !authUser?.user) {
+    const m = (e1?.message ?? "").toLowerCase();
+    if (m.includes("already") || m.includes("registered") || m.includes("exist") || m.includes("duplicate")) {
+      return { ok: false, error: `Ya existe un usuario con el acceso "${input.login.toUpperCase()}". Usa otro nombre de usuario.` };
+    }
+    return { ok: false, error: e1?.message ?? "No se pudo crear el acceso." };
+  }
 
-  // 2) Crea el perfil con su rol y cargo. El usuario se guarda en MAYÚSCULA.
+  // 2) Crea el perfil. Si falla, deshace el usuario de Auth (evita huérfanos).
   const { error: e2 } = await admin.from("usuarios").insert({
     id: authUser.user.id, login: input.login.toUpperCase(), nombre: input.nombre,
-    apellido: input.apellido, rol: input.rol, cargo: input.cargo, code: input.code ?? null,
+    apellido: input.apellido, rol: input.rol, cargo: input.cargo, code: input.code || null,
   });
-  if (e2) throw new Error(e2.message);
+  if (e2) {
+    await admin.auth.admin.deleteUser(authUser.user.id).catch(() => {});
+    if ((e2 as any).code === "23505") return { ok: false, error: "Ese usuario o código ya está en uso por otra persona." };
+    return { ok: false, error: e2.message };
+  }
 
   // 3) (Opcional) Guarda la cédula cifrada vía RPC — nunca en claro.
   if (input.documento) {
-    await admin.rpc("guardar_documento", { p_user: authUser.user.id, p_doc: input.documento });
+    try { await admin.rpc("guardar_documento", { p_user: authUser.user.id, p_doc: input.documento }); } catch { /* el documento es opcional */ }
   }
-  return { id: authUser.user.id };
+  return { ok: true, id: authUser.user.id };
 }
 
 // ── Cambiar la contraseña de un miembro (queda temporal: debe cambiarla) ──
