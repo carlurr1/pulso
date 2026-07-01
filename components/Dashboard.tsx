@@ -171,6 +171,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
                 <div key={a.id} className="casecard">
                   <div className="min0">
                     <div className="caseno">#{a.numero_caso}</div>
+                    {(a as any).cliente && <div className="caseCli">{(a as any).cliente}</div>}
                     <div className="caseMeta">
                       {a.estado === "gestionado" ? <span className="chip done"><Check size={11} />Cerrado por hoy</span>
                         : a.estado === "progreso" ? <span className="chip prog"><CircleDot size={11} />En progreso</span>
@@ -338,6 +339,7 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
                 {bandeja.map((a) => (
                   <div key={a.id} className="caseChip">
                     <span className="mono caseChipNo">#{a.numero_caso}</span>
+                    {(a as any).cliente && <span className="caseChipCli">{(a as any).cliente}</span>}
                     {a.estado === "gestionado" ? <Check size={13} color="var(--ok)" /> : a.estado === "progreso" ? <CircleDot size={13} color="var(--warn)" /> : null}
                     {a.estado === "pendiente" && <button className="xbtn tiny" onClick={() => quitar(a.id)}><X size={12} /></button>}
                   </div>
@@ -665,7 +667,7 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
   const uName = (g: any) => g.usuarios ? firstLast(g.usuarios.nombre, g.usuarios.apellido) : "—";
   const rows = gestiones
     .map((g) => ({ ...g, alert: g.gestiones_catalogo && g.minutos > g.gestiones_catalogo.umbral_min * 1.8 }))
-    .filter((g) => { const s = q.toLowerCase(); return !q || g.numero_caso.includes(q) || uName(g).toLowerCase().includes(s) || (g.gestiones_catalogo?.nombre ?? "").toLowerCase().includes(s); })
+    .filter((g) => { const s = q.toLowerCase(); return !q || g.numero_caso.includes(q) || uName(g).toLowerCase().includes(s) || (g.cliente ?? "").toLowerCase().includes(s) || (g.gestiones_catalogo?.nombre ?? "").toLowerCase().includes(s); })
     .sort((a, b) => (Number(b.alert) - Number(a.alert)) || b.registrado_at.localeCompare(a.registrado_at));
   const hh = (iso: string) => new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -678,7 +680,7 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
         </div>
         <div className="tblscroll">
           <table className="tbl">
-            <thead><tr><th>Persona</th><th>Gestión</th><th>Caso</th><th>Min.</th><th>Hora</th><th></th></tr></thead>
+            <thead><tr><th>Persona</th><th>Gestión</th><th>Caso</th><th>Cliente</th><th>Min.</th><th>Hora</th><th></th></tr></thead>
             <tbody>
               {rows.map((g) => {
                 const cat = g.gestiones_catalogo?.categoria as Categoria;
@@ -687,6 +689,7 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
                     <td className="bold">{uName(g)}</td>
                     <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} />{g.gestiones_catalogo?.nombre ?? "—"}</span></td>
                     <td className="mono s12">#{g.numero_caso}</td>
+                    <td className="s12">{g.cliente ?? <span className="faint">—</span>}</td>
                     <td className={"mono bold " + (g.alert ? "danger" : "")}>{g.minutos}{g.alert && <AlertTriangle size={12} className="inlineicon" />}</td>
                     <td className="mono soft s12">{hh(g.registrado_at)}</td>
                     <td><button className="btn ghost sm" onClick={() => setSel(g)}>Revisar</button></td>
@@ -702,7 +705,7 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
           <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
             <div className="modalHead"><div><div className="h2">Detalle de la gestión</div><div className="mono sub mt3">Caso #{sel.numero_caso}</div></div><button className="xbtn" onClick={() => setSel(null)}><X size={16} /></button></div>
             <div className="modalBody">
-              {[["Persona", uName(sel)], ["Gestión", sel.gestiones_catalogo?.nombre ?? "—"], ["Minutos declarados", sel.minutos + " min"], ["Tiempo típico", "≈ " + (sel.gestiones_catalogo?.umbral_min ?? "—") + " min"], ["Hora", hh(sel.registrado_at)]].map(([k, v]) => (
+              {[["Persona", uName(sel)], ["Gestión", sel.gestiones_catalogo?.nombre ?? "—"], ["Cliente", sel.cliente ?? "—"], ["Minutos declarados", sel.minutos + " min"], ["Tiempo típico", "≈ " + (sel.gestiones_catalogo?.umbral_min ?? "—") + " min"], ["Hora", hh(sel.registrado_at)]].map(([k, v]) => (
                 <div key={k} className="detrow"><span className="detk">{k}</span><span className="detv">{v}</span></div>
               ))}
               {sel.alert && <div className="warnbox"><AlertTriangle size={16} className="warnicon" /><span>El tiempo supera lo habitual para esta gestión. Puede ser legítimo (permisos, llamada con técnico) o un registro a revisar con la persona.</span></div>}
