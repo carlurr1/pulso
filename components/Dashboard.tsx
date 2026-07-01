@@ -95,11 +95,16 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
 
   const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean) => {
     try {
-      if (m.nuevo) await data.agregarCasoNuevo({ userId: perfil.id, tipoId, numeroCaso: caso, minutos: min, seguir });
-      else if (m.libre) await data.registrarLibre({ userId: perfil.id, tipoId, numeroCaso: caso, minutos: min });
-      else await data.registrarGestion({ userId: perfil.id, tipoId, numeroCaso: caso, minutos: min, asignacionId: m.asignacion.id, seguir });
+      const cat = tCat(tipoId);
+      const sinCaso = cat === "reunion" || cat === "interna";
+      // Reuniones/internas no llevan caso: se les asigna un id interno único (no visible al usuario).
+      const numeroCaso = sinCaso ? `REU-${Date.now()}` : caso;
+      const seguirReal = sinCaso ? false : seguir;
+      if (m.nuevo) await data.agregarCasoNuevo({ userId: perfil.id, tipoId, numeroCaso, minutos: min, seguir: seguirReal });
+      else if (m.libre) await data.registrarLibre({ userId: perfil.id, tipoId, numeroCaso, minutos: min });
+      else await data.registrarGestion({ userId: perfil.id, tipoId, numeroCaso, minutos: min, asignacionId: m.asignacion.id, seguir: seguirReal });
       setModal(null);
-      fire(seguir ? "Gestión registrada — el caso sigue en tu bandeja" : "Gestión registrada");
+      fire(seguirReal ? "Gestión registrada — el caso sigue en tu bandeja" : "Gestión registrada");
       reload();
     } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
   };
@@ -215,7 +220,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const tipos = catalogo.filter((g: GestionTipo) => g.activo && (incluirSenior || !g.senior_only));
-  const valid = tipoId && caso.trim() && min && +min > 0;
+  // Reuniones y gestiones internas no corresponden a un caso: no se pide número.
+  const catSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.categoria;
+  const sinCaso = catSel === "reunion" || catSel === "interna";
+  const valid = tipoId && (sinCaso || caso.trim()) && min && +min > 0;
   const title = modal.nuevo ? "Agregar caso nuevo" : modal.libre ? "Gestión sin caso asignado" : "Registrar gestión";
 
   return (
@@ -243,10 +251,12 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 );
               })}
             </div>
-            <div className="grid minutosrow mt16">
-              <div><label className="lbl">Número de caso</label>
-                <input className="inp mono" value={caso} disabled={!!modal.asignacion} placeholder="0xxxxxxxx"
-                  onChange={(e) => setCaso(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></div>
+            <div className={"grid mt16" + (sinCaso ? "" : " minutosrow")}>
+              {!sinCaso && (
+                <div><label className="lbl">Número de caso</label>
+                  <input className="inp mono" value={caso} disabled={!!modal.asignacion} placeholder="0xxxxxxxx"
+                    onChange={(e) => setCaso(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></div>
+              )}
               <div><label className="lbl">Minutos</label>
                 <input className="inp mono" type="number" min={1} value={min} placeholder="10" onChange={(e) => setMin(e.target.value)} /></div>
             </div>
@@ -265,7 +275,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
         {step === 1 && (
           <div className="modalFoot">
             <button className="btn ghost" onClick={onClose}>Cancelar</button>
-            <button className="btn primary" disabled={!valid} onClick={() => setStep(2)}>Continuar</button>
+            <button className="btn primary" disabled={!valid || busy} onClick={async () => {
+              if (sinCaso) { setBusy(true); await onSave(modal, tipoId, "", +min, false); }
+              else setStep(2);
+            }}>Continuar</button>
           </div>
         )}
       </div>
