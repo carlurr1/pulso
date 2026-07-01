@@ -99,6 +99,15 @@
 .caseno{font-family:'JetBrains Mono';font-weight:700;font-size:15px;letter-spacing:-.5px}
 .caseCli{font-size:12.5px;font-weight:600;color:var(--primary);margin-top:2px}
 .caseChipCli{font-size:11px;font-weight:600;color:var(--ink-soft);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.destcol{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left}
+.destopt{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;transition:.15s}
+.destopt:hover{border-color:var(--primary);background:#fff}
+.destopt.on{border-color:var(--primary);background:var(--primary-50)}
+.destlbl{font-weight:700;font-size:14px;color:var(--ink)}
+.destopt.on .destlbl{color:var(--primary-600)}
+.destsub{font-size:11.5px;color:var(--ink-soft)}
+.destdiv{font-size:11.5px;color:var(--ink-faint);text-align:center;margin:2px 0}
+.s11{font-size:11px}
 .caseMeta{font-size:11.5px;color:var(--ink-soft);margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 
 /* inputs */
