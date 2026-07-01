@@ -108,6 +108,7 @@
 .destsub{font-size:11.5px;color:var(--ink-soft)}
 .destdiv{font-size:11.5px;color:var(--ink-faint);text-align:center;margin:2px 0}
 .s11{font-size:11px}
+.reasignSel{height:26px;padding:0 6px;font-size:11.5px;min-width:120px}
 .caseMeta{font-size:11.5px;color:var(--ink-soft);margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 
 /* inputs */
