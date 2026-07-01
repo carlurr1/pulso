@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -94,8 +94,18 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const tName = (id: string) => catalogo.find((c) => c.id === id)?.nombre ?? "—";
   const tCat = (id: string) => catalogo.find((c) => c.id === id)?.categoria ?? "casos";
 
-  const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean, destinoId?: string | null) => {
+  const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean, destinoId?: string | null,
+                        masivoPayload?: { casos: string[]; cerrar: boolean }) => {
     try {
+      // Creación masiva: N creaciones a mi nombre + N casos a la bandeja del destino.
+      if (masivoPayload && masivoPayload.casos.length && destinoId && destinoId !== "__ext__") {
+        const n = await data.crearCasosMasivo({ destinoId, tipoId, casos: masivoPayload.casos, minutos: min, cerrar: masivoPayload.cerrar });
+        const dest = equipo.find((u) => u.id === destinoId);
+        setModal(null);
+        fire(`${n} caso(s) creados — ${masivoPayload.cerrar ? "cerrados" : "en la bandeja de"} ${dest ? dest.nombre : (destinoId === perfil.id ? "ti" : "el analista")}`);
+        reload();
+        return;
+      }
       const cat = tCat(tipoId);
       const sinCaso = cat === "reunion" || cat === "interna";
       // Reuniones/internas no llevan caso: se les asigna un id interno único (no visible al usuario).
@@ -239,6 +249,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [destino, setDestino] = useState<string>("");
+  const [masivo, setMasivo] = useState(false);
+  const [bulkCaso, setBulkCaso] = useState("");
+  const [cerrar, setCerrar] = useState(false);
+  const casosMasivos = bulkCaso.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
   const tipos = catalogo.filter((g: GestionTipo) => g.activo && (incluirSenior || !g.senior_only));
   // Reuniones y gestiones internas no corresponden a un caso: no se pide número.
   const catSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.categoria;
@@ -247,7 +261,7 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
   const nombreSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.nombre?.toUpperCase().trim();
   const esCreacion = modal.nuevo && nombreSel === "CREACIÓN DE CASO";
   const otros = equipo.filter((u: Usuario) => u.id !== yoId);
-  const valid = tipoId && (sinCaso || caso.trim()) && min && +min > 0;
+  const valid = tipoId && (sinCaso || (masivo ? casosMasivos.length > 0 : caso.trim())) && min && +min > 0;
   const title = modal.nuevo ? "Agregar caso nuevo" : modal.libre ? "Gestión sin caso asignado" : "Registrar gestión";
 
   return (
@@ -275,13 +289,24 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 );
               })}
             </div>
-            <div className={"grid mt16" + (sinCaso ? "" : " minutosrow")}>
-              {!sinCaso && (
+            {esCreacion && (
+              <label className="lbl mt16" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                <input type="checkbox" checked={masivo} onChange={(e) => setMasivo(e.target.checked)} />
+                Creación masiva (varios casos de una vez)
+              </label>
+            )}
+            <div className={"grid mt16" + (sinCaso || masivo ? "" : " minutosrow")}>
+              {!sinCaso && (masivo ? (
+                <div><label className="lbl">Números de caso — uno por línea o separados por coma</label>
+                  <textarea className="inp mono" value={bulkCaso} placeholder={"012345678\n012345679"} onChange={(e) => setBulkCaso(e.target.value)} />
+                  {casosMasivos.length > 0 && <div className="sub small mt3">{casosMasivos.length} caso(s) detectado(s)</div>}
+                </div>
+              ) : (
                 <div><label className="lbl">Número de caso</label>
                   <input className="inp mono" value={caso} disabled={!!modal.asignacion} placeholder="0xxxxxxxx"
                     onChange={(e) => setCaso(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></div>
-              )}
-              <div><label className="lbl">Minutos</label>
+              ))}
+              <div><label className="lbl">Minutos{masivo ? " (por cada caso)" : ""}</label>
                 <input className="inp mono" type="number" min={1} value={min} placeholder="10" onChange={(e) => setMin(e.target.value)} /></div>
             </div>
           </div>
@@ -295,10 +320,12 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 <span className="destlbl">Asignar a mí</span>
                 <span className="destsub">Queda en mi bandeja para seguimiento</span>
               </button>
-              <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
-                <span className="destlbl">Otro segmento</span>
-                <span className="destsub">No es de mayoristas — solo cuenta la creación, no queda en bandeja</span>
-              </button>
+              {!masivo && (
+                <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
+                  <span className="destlbl">Otro segmento</span>
+                  <span className="destsub">No es de mayoristas — solo cuenta la creación, no queda en bandeja</span>
+                </button>
+              )}
               <div className="destdiv">o pásaselo a un analista</div>
               <select className="inp" value={otros.some((u: Usuario) => u.id === destino) ? destino : ""} onChange={(e) => setDestino(e.target.value)}>
                 <option value="">Selecciona un analista…</option>
@@ -306,10 +333,19 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                   <option key={u.id} value={u.id}>{u.nombre}{u.apellido ? " " + u.apellido : ""}{u.cargo ? " · " + u.cargo : ""}</option>
                 ))}
               </select>
+              {masivo && (
+                <label className="destopt" style={{ cursor: "pointer" }}>
+                  <span className="destlbl" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="checkbox" checked={cerrar} onChange={(e) => setCerrar(e.target.checked)} />
+                    Crear y cerrar
+                  </span>
+                  <span className="destsub">Entran ya como gestionados — no quedan pendientes en la bandeja</span>
+                </label>
+              )}
             </div>
             <div className="gap10 center-row mt16">
               <button className="btn ghost" disabled={busy} onClick={() => setStep(1)}>Atrás</button>
-              <button className="btn primary" disabled={busy || !destino} onClick={async () => { setBusy(true); await onSave(modal, tipoId, caso.trim(), +min, destino === yoId, destino); }}>Confirmar<ChevronRight size={15} /></button>
+              <button className="btn primary" disabled={busy || !destino} onClick={async () => { setBusy(true); await onSave(modal, tipoId, caso.trim(), +min, destino === yoId, destino, masivo ? { casos: casosMasivos, cerrar } : undefined); }}>Confirmar<ChevronRight size={15} /></button>
             </div>
           </div>
         ) : (
@@ -731,6 +767,114 @@ function ResumenView() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ════════════════ BANDEJA DEL EQUIPO (admin) ════════════════ */
+const ESTADO_META: Record<string, { label: string; chip: string }> = {
+  pendiente:  { label: "Pendiente",   chip: "pend" },
+  progreso:   { label: "En progreso", chip: "prog" },
+  gestionado: { label: "Gestionado",  chip: "done" },
+};
+function BandejaEquipoView() {
+  const [desde, setDesde] = useState(isoHace(6));
+  const [hasta, setHasta] = useState(todayISO());
+  const [equipo, setEquipo] = useState<any[]>([]);
+  const [persona, setPersona] = useState<string>("");
+  const [filas, setFilas] = useState<any[]>([]);
+  const [filtro, setFiltro] = useState<"todos" | "faltan" | "pendiente" | "progreso" | "gestionado">("faltan");
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { data.getUsuarios().then((l: any[]) => setEquipo(l.filter((u) => u.rol === "agente" || u.rol === "senior"))); }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const d = await data.getBandejaEquipo(desde, hasta, persona || null);
+        if (vivo) setFilas(d);
+      } finally { if (vivo) setLoading(false); }
+    })();
+    return () => { vivo = false; };
+  }, [desde, hasta, persona]);
+
+  const total = filas.length;
+  const faltan = filas.filter((f) => f.estado !== "gestionado").length;
+  const hechos = total - faltan;
+
+  const rows = filas.filter((f) => {
+    const okEstado =
+      filtro === "todos" ? true :
+      filtro === "faltan" ? f.estado !== "gestionado" :
+      f.estado === filtro;
+    if (!okEstado) return false;
+    if (!q) return true;
+    const s = q.toLowerCase();
+    const nom = f.usuario ? `${f.usuario.nombre} ${f.usuario.apellido ?? ""}`.toLowerCase() : "";
+    return f.numero_caso.toLowerCase().includes(s) || nom.includes(s) || (f.cliente ?? "").toLowerCase().includes(s);
+  });
+
+  const FiltroBtn = ({ v, children }: { v: typeof filtro; children: any }) => (
+    <button className={"roleopt" + (filtro === v ? " on" : "")} onClick={() => setFiltro(v)}>{children}</button>
+  );
+
+  return (
+    <div>
+      <div className="row-between end">
+        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Bandeja del equipo</div></div>
+        <div className="toolbar">
+          <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
+            <option value="">Todo el equipo</option>
+            {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
+          </select>
+          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+        </div>
+      </div>
+      <div className="sub small mt3">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}{persona ? " · " + (equipo.find((u) => u.id === persona)?.nombre ?? "") : ""}</div>
+
+      <div className="grid three mt16">
+        <div className="card"><div className="eyebrow mb6">Casos asignados</div><div className="bignum">{total}</div></div>
+        <div className="card"><div className="eyebrow mb6">Faltan por gestionar</div><div className="bignum" style={{ color: "var(--warn)" }}>{faltan}</div></div>
+        <div className="card"><div className="eyebrow mb6">Gestionados</div><div className="bignum" style={{ color: "var(--ok)" }}>{hechos}</div></div>
+      </div>
+
+      <div className="card nopad mt15">
+        <div className="tblhead">
+          <div className="rolepick">
+            <FiltroBtn v="todos">Todos</FiltroBtn>
+            <FiltroBtn v="faltan">Faltan</FiltroBtn>
+            <FiltroBtn v="pendiente">Pendiente</FiltroBtn>
+            <FiltroBtn v="progreso">En progreso</FiltroBtn>
+            <FiltroBtn v="gestionado">Gestionado</FiltroBtn>
+          </div>
+          <div className="searchwrap"><Search size={15} className="searchico" /><input className="inp searchinp" placeholder="Buscar caso, persona o cliente…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        </div>
+        <div className="tblscroll">
+          <table className="tbl">
+            <thead><tr><th>Caso</th><th>Cliente</th><th>Persona</th><th>Cargo</th><th>Fecha</th><th>Estado</th></tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={6}><div className="empty">Cargando…</div></td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={6}><div className="empty">Sin casos para este filtro.</div></td></tr>}
+              {!loading && rows.map((f) => {
+                const em = ESTADO_META[f.estado] ?? { label: f.estado, chip: "sin" };
+                return (
+                  <tr key={f.id}>
+                    <td className="mono s12">#{f.numero_caso.replace(/^EXT-/, "")}</td>
+                    <td className="s12">{f.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (f.cliente ?? <span className="faint">—</span>)}</td>
+                    <td className="bold nameCell"><span className="uava xsmall">{(f.usuario?.nombre?.[0] ?? "") + (f.usuario?.apellido?.[0] ?? "")}</span>{f.usuario ? `${f.usuario.nombre} ${f.usuario.apellido ?? ""}` : "—"}</td>
+                    <td className="s12">{f.usuario?.cargo ?? "—"}</td>
+                    <td className="mono s12">{fmtFecha(f.fecha)}</td>
+                    <td><span className={"chip " + em.chip}>{em.label}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1221,15 +1365,15 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   return (
     <div className="card nopad">
       <div className="tblhead">
-        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo logueado y break/almuerzo. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
+        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y break/almuerzo. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
         <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
       </div>
       {okMsg && <div className="okbox" style={{ margin: "0 18px 12px" }}>{okMsg}</div>}
       <div className="tblscroll">
         <table className="tbl">
-          <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo logueado</th><th>En pausa</th><th></th></tr></thead>
+          <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo en la app</th><th>Gestión en el PC</th><th>En pausa</th><th></th></tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={7}><div className="empty">Cargando…</div></td></tr>}
+            {loading && <tr><td colSpan={8}><div className="empty">Cargando…</div></td></tr>}
             {!loading && filas.map((f) => (
               <tr key={f.user_id}>
                 <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
@@ -1237,6 +1381,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
                 <td>{f.en_linea ? <span className="chip done"><span className="liveblip" /> En línea</span> : <span className="chip sin">Desconectado</span>}</td>
                 <td className="mono s12">{f.ultimo ? new Date(f.ultimo).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : <span className="faint">—</span>}</td>
                 <td className="mono bold primary">{fmtMin(f.minutos_logueado || 0)}</td>
+                <td className="mono bold">{f.minutos_pc ? fmtMin(f.minutos_pc) : <span className="faint">—</span>}</td>
                 <td className="mono s12">{f.minutos_pausa ? fmtMin(f.minutos_pausa) : <span className="faint">—</span>}</td>
                 <td><button className="btn ghost sm" onClick={() => { setMsg("Te necesito un momento, por favor."); setAlerta({ user: f.user_id, nombre: `${f.nombre} ${f.apellido ?? ""}` }); }}><Bell size={13} />Alerta</button></td>
               </tr>
@@ -1328,12 +1473,14 @@ const NAV: Record<Rol, NavItem[]> = {
   coordinador: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
+    { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
@@ -1349,17 +1496,95 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
 
-  // Presencia: abre una sesión, late cada minuto y la cierra al salir.
+  // Presencia: abre una sesión y late cada minuto mientras la pestaña esté
+  // abierta y el equipo encendido — aunque el agente trabaje en otra app o
+  // pestaña. El latido corre en un Web Worker porque el navegador congela los
+  // setInterval del hilo principal cuando la pestaña queda en segundo plano.
+  //
+  // Además, en navegadores Chromium mide el TIEMPO ACTIVO EN EL PC con la
+  // Idle Detection API: solo activo/inactivo + pantalla bloqueada, nunca lee
+  // teclas ni mouse. Requiere permiso (se pide en el primer clic). En Firefox
+  // o Safari simplemente no mide esa parte y las demás siguen igual.
   useEffect(() => {
     let id: string | null = null;
-    let timer: any;
+    let worker: Worker | null = null;
+    let blobUrl: string | null = null;
+    let fallbackTimer: any = null;
+    let idleDetector: any = null;
+    let idleController: AbortController | null = null;
+    let pedirPermiso: any = null;
+
+    // Acumulador de tiempo ACTIVO en el PC (ms).
+    let activoMs = 0;
+    let activoDesde: number | null = null;
+    const activoAhora = () => (activoDesde ? activoMs + (Date.now() - activoDesde) : activoMs);
+    const marcarActivo = (activo: boolean) => {
+      const now = Date.now();
+      if (activo && activoDesde === null) activoDesde = now;
+      else if (!activo && activoDesde !== null) { activoMs += now - activoDesde; activoDesde = null; }
+    };
+    const beat = () => {
+      if (idleDetector) marcarActivo(idleDetector.userState === "active" && idleDetector.screenState !== "locked");
+      if (id) data.latido(id, Math.floor(activoAhora() / 1000)).catch(() => {});
+    };
+
+    const iniciarDetector = async () => {
+      const IdleDet = (window as any).IdleDetector;
+      try {
+        idleController = new AbortController();
+        idleDetector = new IdleDet();
+        idleDetector.addEventListener("change", beat);
+        await idleDetector.start({ threshold: 60000, signal: idleController.signal });
+        beat();
+      } catch { idleDetector = null; }
+    };
+    const configurarIdle = async () => {
+      const IdleDet = (window as any).IdleDetector;
+      if (!IdleDet) return;                       // navegador sin soporte (Firefox/Safari)
+      let estado = "prompt";
+      try { estado = (await (navigator as any).permissions.query({ name: "idle-detection" })).state; } catch {}
+      if (estado === "granted") { iniciarDetector(); return; }
+      if (estado === "denied") return;
+      pedirPermiso = async () => {                 // 'prompt': pedir permiso en el primer clic (gesto)
+        try { if ((await IdleDet.requestPermission()) === "granted") iniciarDetector(); } catch {}
+      };
+      window.addEventListener("click", pedirPermiso, { once: true });
+    };
+
     (async () => {
       id = await data.iniciarSesion();
-      if (id) timer = setInterval(() => data.latido(id!), 60000);
+      if (!id) return;
+      beat(); // primer latido inmediato
+      try {
+        // Reloj en worker: su setInterval NO se estrangula en segundo plano.
+        const src = "let t=setInterval(function(){postMessage(0)},60000);onmessage=function(e){if(e.data==='stop')clearInterval(t)}";
+        blobUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+        worker = new Worker(blobUrl);
+        worker.onmessage = beat;
+      } catch {
+        // Fallback (navegador sin Worker): temporizador normal en primer plano.
+        fallbackTimer = setInterval(beat, 60000);
+      }
+      configurarIdle();
     })();
+
+    // Al volver a la pestaña, late de una para recuperar "En línea" al instante.
+    const onVis = () => { if (document.visibilityState === "visible") beat(); };
+    document.addEventListener("visibilitychange", onVis);
+
     const cerrar = () => { if (id) data.cerrarSesion(id); };
     window.addEventListener("beforeunload", cerrar);
-    return () => { clearInterval(timer); window.removeEventListener("beforeunload", cerrar); cerrar(); };
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("beforeunload", cerrar);
+      if (pedirPermiso) window.removeEventListener("click", pedirPermiso);
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      if (worker) { worker.postMessage("stop"); worker.terminate(); }
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (idleController) idleController.abort();
+      cerrar();
+    };
   }, []);
 
   // Alertas en tiempo real (las que me envía el admin/coordinador).
@@ -1452,10 +1677,12 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
+          {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
