@@ -31,7 +31,16 @@ export async function getMiBandeja(userId: string, fecha = hoy()): Promise<Asign
   const sb = createClient();
   const { data } = await sb.from("asignaciones").select("*")
     .eq("user_id", userId).eq("fecha", fecha).order("created_at");
-  return (data ?? []) as Asignacion[];
+  const filas = (data ?? []) as Asignacion[];
+  if (filas.length) {
+    const numeros = filas.map((a) => a.numero_caso).filter((n) => n && !n.startsWith("REU-"));
+    if (numeros.length) {
+      const { data: casos } = await sb.from("casos_sf").select("numero_caso, cliente").in("numero_caso", numeros);
+      const mapa = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
+      filas.forEach((a) => { (a as any).cliente = mapa.get(a.numero_caso) ?? null; });
+    }
+  }
+  return filas;
 }
 
 export async function getMiActividad(userId: string, fecha = hoy()): Promise<Gestion[]> {
@@ -260,7 +269,16 @@ export async function getGestionesDia(fecha = hoy()) {
   const { data } = await sb.from("gestiones")
     .select("*, usuarios(nombre,apellido), gestiones_catalogo(nombre,categoria,umbral_min)")
     .eq("fecha", fecha).order("registrado_at", { ascending: false });
-  return data ?? [];
+  const filas = data ?? [];
+  if (filas.length) {
+    const numeros = [...new Set(filas.map((g: any) => g.numero_caso).filter((n: string) => n && !n.startsWith("REU-")))];
+    if (numeros.length) {
+      const { data: casos } = await sb.from("casos_sf").select("numero_caso, cliente").in("numero_caso", numeros);
+      const mapa = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
+      filas.forEach((g: any) => { g.cliente = mapa.get(g.numero_caso) ?? null; });
+    }
+  }
+  return filas;
 }
 
 // ── CONFIGURACIÓN (superadmin) ────────────────────────────────────
