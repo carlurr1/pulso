@@ -63,6 +63,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const [turno, setTurno] = useState<any>(null);
   const [pausa, setPausa] = useState<any>(null);
   const [pausaBusy, setPausaBusy] = useState(false);
+  const [equipo, setEquipo] = useState<Usuario[]>([]);
 
   const reload = async () => {
     const [b, a] = await Promise.all([data.getMiBandeja(perfil.id), data.getMiActividad(perfil.id)]);
@@ -72,7 +73,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
     const [h, p] = await Promise.all([data.getMiHorarioHoy(perfil.id), data.getPausaActiva(perfil.id)]);
     setTurno(h); setPausa(p);
   };
-  useEffect(() => { reload(); reloadTurno(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { reload(); reloadTurno(); data.getEquipo().then(setEquipo).catch(() => {}); /* eslint-disable-next-line */ }, []);
 
   const salir = async (tipo: "break" | "almuerzo") => {
     setPausaBusy(true);
@@ -93,13 +94,30 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const tName = (id: string) => catalogo.find((c) => c.id === id)?.nombre ?? "—";
   const tCat = (id: string) => catalogo.find((c) => c.id === id)?.categoria ?? "casos";
 
-  const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean) => {
+  const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean, destinoId?: string | null) => {
     try {
       const cat = tCat(tipoId);
       const sinCaso = cat === "reunion" || cat === "interna";
       // Reuniones/internas no llevan caso: se les asigna un id interno único (no visible al usuario).
       const numeroCaso = sinCaso ? `REU-${Date.now()}` : caso;
       const seguirReal = sinCaso ? false : seguir;
+      // Otro segmento (no mayoristas): solo cuenta la creación, no queda en ninguna bandeja.
+      if (destinoId === "__ext__") {
+        await data.crearOtroSegmento({ userId: perfil.id, tipoId, minutos: min, numeroCaso });
+        setModal(null);
+        fire("Creación registrada — caso de otro segmento (no queda en bandeja)");
+        reload();
+        return;
+      }
+      // Traspaso: creo el caso (cuenta como mi gestión) pero queda en la bandeja de otra persona.
+      if (destinoId && destinoId !== perfil.id) {
+        await data.crearYTraspasar({ userId: perfil.id, destinoId, tipoId, numeroCaso, minutos: min });
+        const dest = equipo.find((u) => u.id === destinoId);
+        setModal(null);
+        fire("Caso creado y pasado a " + (dest ? dest.nombre : "el analista"));
+        reload();
+        return;
+      }
       if (m.nuevo) await data.agregarCasoNuevo({ userId: perfil.id, tipoId, numeroCaso, minutos: min, seguir: seguirReal });
       else if (m.libre) await data.registrarLibre({ userId: perfil.id, tipoId, numeroCaso, minutos: min });
       else await data.registrarGestion({ userId: perfil.id, tipoId, numeroCaso, minutos: min, asignacionId: m.asignacion.id, seguir: seguirReal });
@@ -200,7 +218,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
                   <div className="actico" style={{ background: c.color + "1A", color: c.color }}><Ico size={15} /></div>
                   <div className="min0 grow">
                     <div className="actname">{tName(g.tipo_id)}</div>
-                    <div className="mono actmeta">#{g.numero_caso} · {new Date(g.registrado_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
+                    <div className="mono actmeta">#{g.numero_caso.replace(/^(EXT|REU)-/, "")} · {new Date(g.registrado_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
                   </div>
                 </div>
               );
@@ -209,21 +227,26 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         </div>
       </div>
 
-      {modal && <RegistrarModal modal={modal} catalogo={catalogo} incluirSenior={incluirSenior} onClose={() => setModal(null)} onSave={onSave} />}
+      {modal && <RegistrarModal modal={modal} catalogo={catalogo} incluirSenior={incluirSenior} equipo={equipo} yoId={perfil.id} onClose={() => setModal(null)} onSave={onSave} />}
     </>
   );
 }
 
-function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = false }: any) {
+function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = false, equipo = [], yoId }: any) {
   const [tipoId, setTipoId] = useState<string | null>(null);
   const [caso, setCaso] = useState<string>(modal.asignacion?.numero_caso ?? "");
   const [min, setMin] = useState<string>("");
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [destino, setDestino] = useState<string>("");
   const tipos = catalogo.filter((g: GestionTipo) => g.activo && (incluirSenior || !g.senior_only));
   // Reuniones y gestiones internas no corresponden a un caso: no se pide número.
   const catSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.categoria;
   const sinCaso = catSel === "reunion" || catSel === "interna";
+  // Creación de caso: al ser un caso NUEVO, puede quedarse en mi bandeja o pasárselo a otra persona.
+  const nombreSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.nombre?.toUpperCase().trim();
+  const esCreacion = modal.nuevo && nombreSel === "CREACIÓN DE CASO";
+  const otros = equipo.filter((u: Usuario) => u.id !== yoId);
   const valid = tipoId && (sinCaso || caso.trim()) && min && +min > 0;
   const title = modal.nuevo ? "Agregar caso nuevo" : modal.libre ? "Gestión sin caso asignado" : "Registrar gestión";
 
@@ -260,6 +283,33 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
               )}
               <div><label className="lbl">Minutos</label>
                 <input className="inp mono" type="number" min={1} value={min} placeholder="10" onChange={(e) => setMin(e.target.value)} /></div>
+            </div>
+          </div>
+        ) : esCreacion ? (
+          <div className="modalBody center pad30">
+            <div className="bigico"><Activity size={26} /></div>
+            <div className="h2">¿A quién le queda este caso?</div>
+            <div className="sub mb22">La creación cuenta como tu gestión ({min} min). Elige dónde queda el caso para seguimiento.</div>
+            <div className="destcol">
+              <button className={"destopt" + (destino === yoId ? " on" : "")} onClick={() => setDestino(yoId)}>
+                <span className="destlbl">Asignar a mí</span>
+                <span className="destsub">Queda en mi bandeja para seguimiento</span>
+              </button>
+              <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
+                <span className="destlbl">Otro segmento</span>
+                <span className="destsub">No es de mayoristas — solo cuenta la creación, no queda en bandeja</span>
+              </button>
+              <div className="destdiv">o pásaselo a un analista</div>
+              <select className="inp" value={otros.some((u: Usuario) => u.id === destino) ? destino : ""} onChange={(e) => setDestino(e.target.value)}>
+                <option value="">Selecciona un analista…</option>
+                {otros.map((u: Usuario) => (
+                  <option key={u.id} value={u.id}>{u.nombre}{u.apellido ? " " + u.apellido : ""}{u.cargo ? " · " + u.cargo : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div className="gap10 center-row mt16">
+              <button className="btn ghost" disabled={busy} onClick={() => setStep(1)}>Atrás</button>
+              <button className="btn primary" disabled={busy || !destino} onClick={async () => { setBusy(true); await onSave(modal, tipoId, caso.trim(), +min, destino === yoId, destino); }}>Confirmar<ChevronRight size={15} /></button>
             </div>
           </div>
         ) : (
@@ -688,8 +738,8 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
                   <tr key={g.id} className={g.alert ? "row-alert" : ""}>
                     <td className="bold">{uName(g)}</td>
                     <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} />{g.gestiones_catalogo?.nombre ?? "—"}</span></td>
-                    <td className="mono s12">#{g.numero_caso}</td>
-                    <td className="s12">{g.cliente ?? <span className="faint">—</span>}</td>
+                    <td className="mono s12">#{g.numero_caso.replace(/^EXT-/, "")}</td>
+                    <td className="s12">{g.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (g.cliente ?? <span className="faint">—</span>)}</td>
                     <td className={"mono bold " + (g.alert ? "danger" : "")}>{g.minutos}{g.alert && <AlertTriangle size={12} className="inlineicon" />}</td>
                     <td className="mono soft s12">{hh(g.registrado_at)}</td>
                     <td><button className="btn ghost sm" onClick={() => setSel(g)}>Revisar</button></td>
@@ -703,9 +753,9 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
       {sel && (
         <div className="overlay" onClick={() => setSel(null)}>
           <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
-            <div className="modalHead"><div><div className="h2">Detalle de la gestión</div><div className="mono sub mt3">Caso #{sel.numero_caso}</div></div><button className="xbtn" onClick={() => setSel(null)}><X size={16} /></button></div>
+            <div className="modalHead"><div><div className="h2">Detalle de la gestión</div><div className="mono sub mt3">Caso #{sel.numero_caso?.replace(/^(EXT|REU)-/, "")}</div></div><button className="xbtn" onClick={() => setSel(null)}><X size={16} /></button></div>
             <div className="modalBody">
-              {[["Persona", uName(sel)], ["Gestión", sel.gestiones_catalogo?.nombre ?? "—"], ["Cliente", sel.cliente ?? "—"], ["Minutos declarados", sel.minutos + " min"], ["Tiempo típico", "≈ " + (sel.gestiones_catalogo?.umbral_min ?? "—") + " min"], ["Hora", hh(sel.registrado_at)]].map(([k, v]) => (
+              {[["Persona", uName(sel)], ["Gestión", sel.gestiones_catalogo?.nombre ?? "—"], ["Cliente", sel.numero_caso?.startsWith("EXT-") ? "Otro segmento" : (sel.cliente ?? "—")], ["Minutos declarados", sel.minutos + " min"], ["Tiempo típico", "≈ " + (sel.gestiones_catalogo?.umbral_min ?? "—") + " min"], ["Hora", hh(sel.registrado_at)]].map(([k, v]) => (
                 <div key={k} className="detrow"><span className="detk">{k}</span><span className="detv">{v}</span></div>
               ))}
               {sel.alert && <div className="warnbox"><AlertTriangle size={16} className="warnicon" /><span>El tiempo supera lo habitual para esta gestión. Puede ser legítimo (permisos, llamada con técnico) o un registro a revisar con la persona.</span></div>}
