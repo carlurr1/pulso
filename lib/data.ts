@@ -92,6 +92,38 @@ export async function registrarLibre(opts: {
   return registrarGestion({ ...opts, asignacionId: null, seguir: false });
 }
 
+// Crear un caso y traspasarlo: la CREACIÓN cuenta como gestión de quien lo crea (userId),
+// pero el caso NO queda en su bandeja: se deja pendiente en la bandeja del destinatario (destinoId).
+export async function crearYTraspasar(opts: {
+  userId: string; destinoId: string; tipoId: string; numeroCaso: string; minutos: number;
+}) {
+  const sb = createClient();
+  // 1) La gestión de creación se registra a nombre de quien crea (sin asignación propia).
+  await registrarGestion({
+    userId: opts.userId, tipoId: opts.tipoId, numeroCaso: opts.numeroCaso,
+    minutos: opts.minutos, asignacionId: null, seguir: false,
+  });
+  // 2) El caso entra a la bandeja del destinatario como pendiente de seguimiento.
+  const { error } = await sb.from("asignaciones").upsert({
+    user_id: opts.destinoId, numero_caso: opts.numeroCaso, fecha: hoy(),
+    estado: "pendiente", asignado_por: opts.userId,
+  }, { onConflict: "fecha,user_id,numero_caso", ignoreDuplicates: true });
+  if (error) throw error;
+  if (!opts.numeroCaso.startsWith("REU-")) enriquecerCasos([opts.numeroCaso]).catch(() => {});
+}
+
+// Crear un caso de OTRO SEGMENTO (no mayoristas): la creación cuenta como gestión de quien la hace,
+// pero el caso NO entra a ninguna bandeja ni se enriquece con Salesforce. Se marca con prefijo EXT-.
+export async function crearOtroSegmento(opts: {
+  userId: string; tipoId: string; numeroCaso: string; minutos: number;
+}) {
+  return registrarGestion({
+    userId: opts.userId, tipoId: opts.tipoId,
+    numeroCaso: "EXT-" + opts.numeroCaso,
+    minutos: opts.minutos, asignacionId: null, seguir: false,
+  });
+}
+
 // ── REPARTIR SEGUIMIENTO (vista senior) ───────────────────────────
 export async function getEquipo(): Promise<Usuario[]> {
   const sb = createClient();
