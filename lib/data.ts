@@ -72,7 +72,7 @@ export async function agregarCasoNuevo(opts: {
   }).select().single();
   if (error) throw error;
   await registrarGestion({ ...opts, asignacionId: a.id });
-  enriquecerCasos([opts.numeroCaso]).catch(() => {});
+  if (!opts.numeroCaso.startsWith("REU-")) enriquecerCasos([opts.numeroCaso]).catch(() => {});
   return a as Asignacion;
 }
 
