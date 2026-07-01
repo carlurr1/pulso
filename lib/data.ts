@@ -43,6 +43,32 @@ export async function getMiBandeja(userId: string, fecha = hoy()): Promise<Asign
   return filas;
 }
 
+// Bandeja de TODO el equipo en un rango: cada caso asignado, a quién y su
+// estado. Solo privilegiados (RLS lo restringe). Enriquece cliente (Salesforce).
+export async function getBandejaEquipo(desde: string, hasta: string, personaId?: string | null) {
+  const sb = createClient();
+  let q = sb.from("asignaciones").select("*")
+    .gte("fecha", desde).lte("fecha", hasta)
+    .order("fecha", { ascending: false }).order("created_at", { ascending: false });
+  if (personaId) q = q.eq("user_id", personaId);
+  const { data } = await q;
+  const filas = (data ?? []) as any[];
+  if (!filas.length) return [];
+  // Persona de cada asignación.
+  const ids = [...new Set(filas.map((a) => a.user_id))];
+  const { data: us } = await sb.from("usuarios").select("id, nombre, apellido, cargo").in("id", ids);
+  const umap = new Map((us ?? []).map((u: any) => [u.id, u]));
+  // Cliente por caso (Salesforce), ignorando reuniones/internas (REU-).
+  const numeros = [...new Set(filas.map((a) => a.numero_caso).filter((n: string) => n && !n.startsWith("REU-")))];
+  let cmap = new Map<string, string>();
+  if (numeros.length) {
+    const { data: casos } = await sb.from("casos_sf").select("numero_caso, cliente").in("numero_caso", numeros);
+    cmap = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
+  }
+  filas.forEach((a) => { a.usuario = umap.get(a.user_id) ?? null; a.cliente = cmap.get(a.numero_caso) ?? null; });
+  return filas;
+}
+
 export async function getMiActividad(userId: string, fecha = hoy()): Promise<Gestion[]> {
   // El agente ve sus entradas, NO un total acumulado (eso solo vía RPC privilegiado).
   const sb = createClient();
@@ -98,18 +124,34 @@ export async function crearYTraspasar(opts: {
   userId: string; destinoId: string; tipoId: string; numeroCaso: string; minutos: number;
 }) {
   const sb = createClient();
-  // 1) La gestión de creación se registra a nombre de quien crea (sin asignación propia).
-  await registrarGestion({
-    userId: opts.userId, tipoId: opts.tipoId, numeroCaso: opts.numeroCaso,
-    minutos: opts.minutos, asignacionId: null, seguir: false,
+  // Creación + traspaso en el servidor (con auditoría): funciona para cualquier
+  // rol sin abrir la tabla de asignaciones a escritura directa.
+  const caso = opts.numeroCaso.trim();
+  const { error } = await sb.rpc("crear_y_traspasar", {
+    p_destino: opts.destinoId, p_tipo: opts.tipoId, p_caso: caso, p_minutos: opts.minutos,
   });
-  // 2) El caso entra a la bandeja del destinatario como pendiente de seguimiento.
-  const { error } = await sb.from("asignaciones").upsert({
-    user_id: opts.destinoId, numero_caso: opts.numeroCaso, fecha: hoy(),
-    estado: "pendiente", asignado_por: opts.userId,
-  }, { onConflict: "fecha,user_id,numero_caso", ignoreDuplicates: true });
   if (error) throw error;
-  if (!opts.numeroCaso.startsWith("REU-")) enriquecerCasos([opts.numeroCaso]).catch(() => {});
+  if (!caso.startsWith("REU-")) enriquecerCasos([caso]).catch(() => {});
+}
+
+// Creación MASIVA: una sola llamada crea N gestiones de creación a mi nombre
+// y deja los N casos en la bandeja del destino (pendientes o ya cerrados).
+// Atómico en el servidor (RPC crear_casos_masivo). No borra ni pisa nada.
+export async function crearCasosMasivo(opts: {
+  destinoId: string; tipoId: string; casos: string[]; minutos: number; cerrar?: boolean;
+}) {
+  const sb = createClient();
+  const casos = [...new Set(opts.casos.map((c) => c.trim()).filter(Boolean))];
+  const { data, error } = await sb.rpc("crear_casos_masivo", {
+    p_destino: opts.destinoId,
+    p_tipo: opts.tipoId,
+    p_casos: casos,
+    p_minutos: opts.minutos,
+    p_cerrar: opts.cerrar ?? false,
+  });
+  if (error) throw error;
+  enriquecerCasos(casos.filter((c) => !c.startsWith("REU-"))).catch(() => {});
+  return (data as number) ?? casos.length;
 }
 
 // Crear un caso de OTRO SEGMENTO (no mayoristas): la creación cuenta como gestión de quien la hace,
@@ -238,9 +280,11 @@ export async function iniciarSesion(): Promise<string | null> {
   const { data } = await sb.from("sesiones").insert({ user_id: user.id }).select("id").single();
   return data?.id ?? null;
 }
-export async function latido(id: string) {
+export async function latido(id: string, activoSeg?: number) {
   const sb = createClient();
-  await sb.from("sesiones").update({ ultimo_latido: new Date().toISOString() }).eq("id", id);
+  const upd: Record<string, unknown> = { ultimo_latido: new Date().toISOString() };
+  if (typeof activoSeg === "number") upd.activo_seg = activoSeg;
+  await sb.from("sesiones").update(upd).eq("id", id);
 }
 export async function cerrarSesion(id: string) {
   const sb = createClient();
