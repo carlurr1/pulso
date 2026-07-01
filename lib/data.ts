@@ -154,6 +154,17 @@ export async function quitarAsignacion(id: string) {
   await sb.from("asignaciones").delete().eq("id", id);
 }
 
+// Reasignar un caso pendiente a otra persona (corregir un traspaso equivocado).
+// Solo mueve la bandeja; no crea ni toca gestiones. Se usa cuando el caso aún no se ha trabajado.
+export async function reasignarCaso(opts: { asignacionId: string; destinoId: string; porId: string }) {
+  const sb = createClient();
+  const { error } = await sb.from("asignaciones")
+    .update({ user_id: opts.destinoId, asignado_por: opts.porId, estado: "pendiente" })
+    .eq("id", opts.asignacionId)
+    .eq("estado", "pendiente"); // solo si sigue pendiente (no trabajado)
+  if (error) throw error;
+}
+
 // ── DASHBOARDS (vista coordinador / superadmin) — solo vía RPC ─────
 export async function getMetricasPersonas(fecha = hoy()): Promise<MetricaPersona[]> {
   const sb = createClient();
