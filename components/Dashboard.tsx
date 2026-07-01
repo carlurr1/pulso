@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -358,6 +358,17 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     } catch (e: any) { fire("Error: " + e.message); }
   };
   const quitar = async (id: string) => { await data.quitarAsignacion(id); data.getMiBandeja(sel).then(setBandeja); };
+  const [reasignando, setReasignando] = useState<string | null>(null);
+  const reasignar = async (asignacionId: string, destinoId: string) => {
+    if (!destinoId || destinoId === sel) { setReasignando(null); return; }
+    try {
+      await data.reasignarCaso({ asignacionId, destinoId, porId: perfil.id });
+      const dest = equipo.find((u) => u.id === destinoId);
+      fire("Caso reasignado a " + (dest ? dest.nombre : "el analista"));
+      setReasignando(null);
+      data.getMiBandeja(sel).then(setBandeja);
+    } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo reasignar")); }
+  };
 
   return (
     <>
@@ -391,7 +402,20 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
                     <span className="mono caseChipNo">#{a.numero_caso}</span>
                     {(a as any).cliente && <span className="caseChipCli">{(a as any).cliente}</span>}
                     {a.estado === "gestionado" ? <Check size={13} color="var(--ok)" /> : a.estado === "progreso" ? <CircleDot size={13} color="var(--warn)" /> : null}
-                    {a.estado === "pendiente" && <button className="xbtn tiny" onClick={() => quitar(a.id)}><X size={12} /></button>}
+                    {a.estado === "pendiente" && reasignando !== a.id && (
+                      <button className="xbtn tiny" title="Pasar a otro analista" onClick={() => setReasignando(a.id)}><ArrowRight size={12} /></button>
+                    )}
+                    {a.estado === "pendiente" && (
+                      <button className="xbtn tiny" title="Quitar" onClick={() => quitar(a.id)}><X size={12} /></button>
+                    )}
+                    {reasignando === a.id && (
+                      <select className="inp reasignSel" autoFocus defaultValue="" onChange={(e) => reasignar(a.id, e.target.value)} onBlur={() => setReasignando(null)}>
+                        <option value="">Pasar a…</option>
+                        {equipo.filter((u) => u.id !== sel).map((u) => (
+                          <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 ))}
               </div>}
