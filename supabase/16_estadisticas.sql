@@ -98,3 +98,7 @@ begin
   where u.activo and u.rol in ('agente','senior','coordinador')
   order by u.nombre;
 end $$;
+
+-- Fuerza al API de Supabase (PostgREST) a recargar su caché de esquema,
+-- para que las funciones nuevas queden disponibles de inmediato.
+notify pgrst, 'reload schema';
