@@ -1564,6 +1564,80 @@ function HorarioConfig() {
 
 /* ════════════════ PRESENCIA (admin) ════════════════ */
 const fmtMin = (m: number) => { const h = Math.floor(m / 60); const r = m % 60; return h > 0 ? `${h}h ${r}m` : `${r}m`; };
+/* ════════════════ ANUNCIOS ANCLADOS (gestión del coordinador) ════════════════ */
+function AnunciosPanel({ perfil }: { perfil: Usuario }) {
+  const [lista, setLista] = useState<any[]>([]);
+  const [msg, setMsg] = useState("");
+  const [reqResp, setReqResp] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const cargar = () => data.getAnunciosConEstado().then(setLista).catch(() => {});
+  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
+
+  const publicar = async () => {
+    if (!msg.trim()) return;
+    setBusy(true);
+    try {
+      await data.crearAnuncio(msg.trim(), reqResp, `${perfil.nombre} ${perfil.apellido ?? ""}`.trim());
+      setMsg(""); setReqResp(false); cargar();
+    } catch { /* RLS: solo privilegiados */ }
+    finally { setBusy(false); }
+  };
+  const retirar = async (id: string) => { await data.desactivarAnuncio(id).catch(() => {}); cargar(); };
+  const hh = (iso: string) => new Date(iso).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+  return (
+    <div className="card mb14">
+      <div className="h2 mb4">Anuncio anclado para el equipo</div>
+      <div className="sub small mb10">Le sale en ventana emergente a cada agente al conectarse (o al instante si está en línea) y no se quita hasta que confirme. Aquí ves quién ya lo vio y qué respondió.</div>
+      <textarea className="inp" rows={2} maxLength={300} placeholder="Ej: Recuerden que mañana es la evaluación mensual a las 9 a.m."
+        value={msg} onChange={(e) => setMsg(e.target.value)} />
+      <div className="row-between mt8">
+        <label className="sub small" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={reqResp} onChange={(e) => setReqResp(e.target.checked)} />
+          Exigir respuesta escrita (no basta con "Enterado")
+        </label>
+        <button className="btn primary sm" disabled={busy || !msg.trim()} onClick={publicar}>Publicar anuncio</button>
+      </div>
+
+      {lista.length > 0 && (
+        <div className="col9 mt12">
+          {lista.map((a) => (
+            <div key={a.id} className="casecard" style={{ alignItems: "flex-start" }}>
+              <div className="min0 grow">
+                <div className="s12" style={{ fontWeight: 600 }}>{a.mensaje}</div>
+                <div className="caseMeta mt3">
+                  {a.activo ? <span className="chip done">Activo</span> : <span className="chip sin">Retirado</span>}
+                  {a.requiere_respuesta && <span className="chip bajo">Con respuesta</span>}
+                  <span className="faint">· {hh(a.created_at)} · <b>{a.confirmaciones.length}/{a.total_equipo}</b> confirmaron</span>
+                </div>
+                {abierto === a.id && (
+                  <div className="mt8">
+                    {a.confirmaciones.length === 0 && <div className="sub small">Nadie lo ha confirmado todavía.</div>}
+                    {a.confirmaciones.map((c: any) => (
+                      <div key={c.user_id} className="sub small" style={{ padding: "3px 0" }}>
+                        <b>{c.usuario ? firstLast(c.usuario.nombre, c.usuario.apellido) : "—"}</b>
+                        <span className="faint"> · {hh(c.confirmado_at)}</span>
+                        {c.respuesta && <> — "{c.respuesta}"</>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="gap9">
+                <button className="btn ghost sm" onClick={() => setAbierto(abierto === a.id ? null : a.id)}>
+                  {abierto === a.id ? "Ocultar" : "Ver confirmaciones"}
+                </button>
+                {a.activo && <button className="btn ghost sm" onClick={() => retirar(a.id)}>Retirar</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PresenciaView({ perfil }: { perfil: Usuario }) {
   const [filas, setFilas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1587,9 +1661,11 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   };
 
   return (
+    <>
+    <AnunciosPanel perfil={perfil} />
     <div className="card nopad">
       <div className="tblhead">
-        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y break/almuerzo. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
+        <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y sus pausas. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
         <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
       </div>
       {okMsg && <div className="okbox" style={{ margin: "0 18px 12px" }}>{okMsg}</div>}
@@ -1639,6 +1715,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -1862,6 +1939,35 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   }, [perfil.id]);
   const cerrarAlerta = () => { if (alertaIn) data.marcarAlertaLeida(alertaIn.id); setAlertaIn(null); };
 
+  // Anuncios anclados: ventana bloqueante hasta confirmar (solo equipo operativo).
+  const [anuncios, setAnuncios] = useState<any[]>([]);
+  const [respAnuncio, setRespAnuncio] = useState("");
+  const [confirmandoAn, setConfirmandoAn] = useState(false);
+  useEffect(() => {
+    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    let off: (() => void) | undefined;
+    (async () => {
+      const pend = await data.getAnunciosPendientes(perfil.id).catch(() => []);
+      if (pend.length) setAnuncios(pend);
+      off = data.suscribirAnuncios((a) => {
+        if (!a?.activo) return;
+        setAnuncios((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
+        beep();
+      });
+    })();
+    return () => { off?.(); };
+  }, [perfil.id]);
+  const anuncioActual = anuncios[0] ?? null;
+  const confirmarAnuncio = async () => {
+    if (!anuncioActual || (anuncioActual.requiere_respuesta && !respAnuncio.trim())) return;
+    setConfirmandoAn(true);
+    try {
+      await data.confirmarAnuncio(anuncioActual.id, perfil.id, respAnuncio);
+      setAnuncios((prev) => prev.slice(1)); setRespAnuncio("");
+    } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo confirmar")); }
+    finally { setConfirmandoAn(false); }
+  };
+
   // PWA: el aviso de instalación se captura temprano en el layout (window.__pwaPrompt).
   const [instalable, setInstalable] = useState<any>(null);
   useEffect(() => {
@@ -1979,6 +2085,23 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
             <div className="alerttitle">Alerta de {alertaIn.de_nombre || "Coordinación"}</div>
             <div className="alertmsg">{alertaIn.mensaje}</div>
             <button className="btn primary block" onClick={cerrarAlerta}>Entendido</button>
+          </div>
+        </div>
+      )}
+      {anuncioActual && (
+        <div className="overlay alta">
+          <div className="alertcard">
+            <div className="alertico" style={{ animation: "none" }}><Bell size={30} /></div>
+            <div className="alerttitle">Anuncio de {anuncioActual.de_nombre || "Coordinación"}</div>
+            <div className="alertmsg">{anuncioActual.mensaje}</div>
+            {anuncioActual.requiere_respuesta && (
+              <textarea className="inp mb12" rows={3} maxLength={300} placeholder="Escribe tu respuesta…"
+                value={respAnuncio} onChange={(e) => setRespAnuncio(e.target.value)} style={{ textAlign: "left" }} />
+            )}
+            <button className="btn primary block" disabled={confirmandoAn || (anuncioActual.requiere_respuesta && !respAnuncio.trim())} onClick={confirmarAnuncio}>
+              {anuncioActual.requiere_respuesta ? "Enviar respuesta" : "Enterado"}
+            </button>
+            {anuncios.length > 1 && <div className="sub tiny mt6">Tienes {anuncios.length - 1} anuncio(s) más por confirmar.</div>}
           </div>
         </div>
       )}
