@@ -41,15 +41,30 @@ function PulseLine() {
     </svg>
   );
 }
-function Stat({ icon: Ico, value, label, color, pct }: any) {
+function Stat({ icon: Ico, value, label, color, pct, delta, deltaDir }: any) {
   return (
     <div className="stat">
       <div className="statTop"><div className="statIco" style={{ background: color + "1A", color }}><Ico size={18} /></div></div>
       <div className="statVal" style={{ color }}>{value}</div>
       <div className="statLbl">{label}</div>
+      {delta != null && <div className={"statDelta " + (deltaDir ?? "flat")}>{deltaDir === "up" ? "▲" : deltaDir === "down" ? "▼" : "•"} {delta}</div>}
       {pct != null && <div className="statBar" style={{ width: pct + "%", background: color }} />}
     </div>
   );
+}
+// Delta vs periodo anterior. invert=true cuando subir es MALO (ej. alertas).
+function calcDelta(cur: number | null | undefined, prev: number | null | undefined, unit = "", invert = false) {
+  if (cur == null || prev == null) return {};
+  const d = Math.round(cur - prev);
+  const dir = d === 0 ? "flat" : (d > 0) !== invert ? "up" : "down";
+  return { delta: `${d > 0 ? "+" : ""}${d}${unit} vs anterior`, deltaDir: dir };
+}
+// Rango anterior del mismo tamaño que [desde, hasta] (termina el día antes de "desde").
+function rangoAnterior(desde: string, hasta: string): [string, string] {
+  const d1 = new Date(desde + "T12:00:00"), d2 = new Date(hasta + "T12:00:00");
+  const dias = Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 864e5) + 1);
+  const pHasta = new Date(d1.getTime() - 864e5), pDesde = new Date(d1.getTime() - dias * 864e5);
+  return [pDesde.toISOString().slice(0, 10), pHasta.toISOString().slice(0, 10)];
 }
 function DemandChip({ level }: { level: string }) {
   const map: any = { ALTO: "alto", MEDIO: "medio", BAJO: "bajo", "SIN DEMANDA": "sin" };
@@ -572,22 +587,28 @@ function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) =>
 
 /* ════════════════ VISTA COORDINADOR / TABLERO 360 ════════════════ */
 function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
-  const [desde, setDesde] = useState(isoHace(6));
+  const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
   const [mesa, setMesa] = useState("");
   const [kpis, setKpis] = useState<any>(null);
+  const [kpisPrev, setKpisPrev] = useState<any>(null);
   const [ranking, setRanking] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
   const [tend, setTend] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [topCasos, setTopCasos] = useState<any[]>([]);
+  const [resolucion, setResolucion] = useState<any[]>([]);
   const [gestDia, setGestDia] = useState<any[]>([]);
   const [equipo, setEquipo] = useState<any[]>([]);
+  const [metas, setMetas] = useState<Record<string, number>>({});
   const [persona, setPersona] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior"))); }, []);
+  useEffect(() => {
+    data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior")));
+    data.getMetas().then(setMetas).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let vivo = true;
@@ -596,17 +617,30 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       const p = persona || null;
       try {
         const m = mesa || null;
-        const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
-          data.gKpis(desde, hasta, p, m), data.gRanking(desde, hasta, m), data.gPorRol(desde, hasta, m),
+        const [pDesde, pHasta] = rangoAnterior(desde, hasta);
+        const [k, kp, rk, r, t, te, cl, tc, rs, gd] = await Promise.all([
+          data.gKpis(desde, hasta, p, m), data.gKpis(pDesde, pHasta, p, m),
+          data.gRanking(desde, hasta, m), data.gPorRol(desde, hasta, m),
           data.gPorTipo(desde, hasta, p, m), data.gTendenciaKpi(desde, hasta, p, m), data.gPorCliente(desde, hasta, p, m),
-          data.gTopCasos(desde, hasta, p, m), data.getGestionesDia(),
+          data.gTopCasos(desde, hasta, p, m), data.eResolucion(desde, hasta, m), data.getGestionesDia(),
         ]);
         if (!vivo) return;
-        setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTopCasos(tc); setGestDia(gd);
+        setKpis(k); setKpisPrev(kp); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTopCasos(tc); setResolucion(rs); setGestDia(gd);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
   }, [desde, hasta, persona, mesa]);
+
+  // Semáforo de metas: promedio de gestiones/día del periodo vs la meta de la mesa.
+  const diasPeriodo = Math.max(1, Math.round((new Date(hasta + "T12:00:00").getTime() - new Date(desde + "T12:00:00").getTime()) / 864e5) + 1);
+  const mesaDe = (userId: string) => equipo.find((u: any) => u.id === userId)?.mesa as string | undefined;
+  const metaChip = (r: any) => {
+    const meta = metas[mesa || mesaDe(r.user_id) || ""] ?? 0;
+    if (!meta) return <span className="faint">—</span>;
+    const prom = r.gestiones / diasPeriodo;
+    const cls = prom >= meta ? "done" : prom >= meta * 0.7 ? "medio" : "alto";
+    return <span className={"chip " + cls}>{prom.toFixed(1)}/{meta}</span>;
+  };
 
   const porTipo = tipos.map((t) => ({ nombre: t.nombre.length > 22 ? t.nombre.slice(0, 20) + "…" : t.nombre, n: t.total, color: CATS[t.categoria as Categoria].color })).slice(0, 8);
   const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), efectividad: d.efectividad, productividad: d.productividad, gestiones: d.gestiones }));
@@ -652,19 +686,26 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       {loading ? <div className="card mt20"><div className="empty">Cargando métricas…</div></div> : (
         <>
           <div className="grid six mt16">
-            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad" color="#0098D6" pct={kpis?.efectividad ?? 0} />
-            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0} />
-            <Stat icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#26B07A" pct={kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0} />
-            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones totales" color="#14B8C4" />
-            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo registrado" color="#D858A0" />
-            <Stat icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C" />
+            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad" color="#0098D6" pct={kpis?.efectividad ?? 0}
+              {...calcDelta(kpis?.efectividad, kpisPrev?.efectividad, "%")} />
+            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0}
+              {...calcDelta(kpis?.productividad, kpisPrev?.productividad, "%")} />
+            <Stat icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#26B07A" pct={kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0}
+              {...calcDelta(kpis?.gestionados, kpisPrev?.gestionados)} />
+            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones totales" color="#14B8C4"
+              {...calcDelta(kpis?.gestiones, kpisPrev?.gestiones)} />
+            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo registrado" color="#D858A0"
+              {...calcDelta(kpis?.minutos != null ? kpis.minutos / 60 : null, kpisPrev?.minutos != null ? kpisPrev.minutos / 60 : null, "h")} />
+            <Stat icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C"
+              {...calcDelta(kpis?.alertas, kpisPrev?.alertas, "", true)} />
           </div>
+          <div className="sub tiny mt6 no-print">Comparado contra el periodo anterior del mismo tamaño ({diasPeriodo === 1 ? "ayer" : `${diasPeriodo} días previos`}).</div>
 
           <div className="card mt15">
             <div className="row-between mb12"><div><div className="h2">Ranking del equipo</div><div className="sub small">Comparación por persona en el periodo. Ordenado por tiempo trabajado.</div></div></div>
             <div className="tblscroll">
               <table className="tbl">
-                <thead><tr><th>#</th><th>Persona</th><th>Cargo</th><th>Gestiones</th><th>Tiempo</th><th>Efectividad</th><th>Carga</th></tr></thead>
+                <thead><tr><th>#</th><th>Persona</th><th>Cargo</th><th>Gestiones</th><th>Tiempo</th><th>Efectividad</th><th>Carga</th><th title="Promedio de gestiones/día vs la meta de su mesa">Meta</th></tr></thead>
                 <tbody>
                   {ranking.filter((r) => (persona ? r.user_id === persona : (r.gestiones > 0 || r.asignados > 0))).map((r, i) => (
                     <tr key={r.user_id}>
@@ -675,9 +716,10 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                       <td className="mono bold">{horas(r.minutos)}</td>
                       <td className="mono">{r.efectividad != null ? r.efectividad + "%" : "—"}</td>
                       <td>{r.carga != null ? <span className={"chip " + (r.carga >= 90 ? "alto" : r.carga >= 35 ? "bajo" : "sin")}>{r.carga}%</span> : <span className="faint">—</span>}</td>
+                      <td>{metaChip(r)}</td>
                     </tr>
                   ))}
-                  {ranking.every((r) => !r.gestiones && !r.asignados) && <tr><td colSpan={7}><div className="empty pad24">Sin actividad en el periodo seleccionado.</div></td></tr>}
+                  {ranking.every((r) => !r.gestiones && !r.asignados) && <tr><td colSpan={8}><div className="empty pad24">Sin actividad en el periodo seleccionado.</div></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -762,6 +804,27 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                 </div>}
             </div>
           </div>
+
+          <div className="card mt15">
+            <div className="h2 mb4">Tiempo de resolución por cliente <span className="sfbadge">Salesforce</span></div>
+            <div className="sub small mb10">Días entre la asignación del caso y su último registro de gestión al cerrarlo. El dato que le puedes reportar a ETB.</div>
+            {resolucion.length === 0 ? <div className="empty pad24">Sin casos cerrados en el periodo.</div> :
+              <div className="tblscroll">
+                <table className="tbl">
+                  <thead><tr><th>Cliente</th><th>Casos cerrados</th><th>Promedio (días)</th><th>Máximo (días)</th></tr></thead>
+                  <tbody>
+                    {resolucion.map((r: any, i: number) => (
+                      <tr key={i}>
+                        <td className="bold s12">{r.cliente}</td>
+                        <td className="mono">{r.casos}</td>
+                        <td className="mono bold">{r.prom_dias}</td>
+                        <td className="mono">{r.max_dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>}
+          </div>
         </>
       )}
     </div>
@@ -770,7 +833,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
 
 /* ════════════════ RESUMEN EJECUTIVO (para dirección) ════════════════ */
 function ResumenView() {
-  const [desde, setDesde] = useState(isoHace(6));
+  const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
   const [kpis, setKpis] = useState<any>(null);
   const [ranking, setRanking] = useState<any[]>([]);
@@ -865,7 +928,7 @@ const ESTADO_META: Record<string, { label: string; chip: string }> = {
   gestionado: { label: "Gestionado",  chip: "done" },
 };
 function BandejaEquipoView() {
-  const [desde, setDesde] = useState(isoHace(6));
+  const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
@@ -976,14 +1039,17 @@ function BandejaEquipoView() {
 
 /* ════════════════ ESTADÍSTICAS (supervisión de tiempos y flujo) ════════════════ */
 function EstadisticasView() {
-  const [desde, setDesde] = useState(isoHace(6));
+  const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
   const [mesa, setMesa] = useState("");
   const [stats, setStats] = useState<any>(null);
+  const [statsPrev, setStatsPrev] = useState<any>(null);
   const [dias, setDias] = useState<any[]>([]);
   const [traspasos, setTraspasos] = useState<any[]>([]);
+  const [porHora, setPorHora] = useState<any[]>([]);
+  const [pausasNorma, setPausasNorma] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -994,19 +1060,27 @@ function EstadisticasView() {
     (async () => {
       setLoading(true);
       try {
-        const [s, d, t] = await Promise.all([
+        const [pDesde, pHasta] = rangoAnterior(desde, hasta);
+        const [s, sp, d, t, ph, pn] = await Promise.all([
           data.eStats(desde, hasta, persona || null, mesa || null),
+          data.eStats(pDesde, pHasta, persona || null, mesa || null).catch(() => null),
           data.eStatsDia(desde, hasta, persona || null, mesa || null),
           data.eTraspasos(desde, hasta, mesa || null),
+          data.ePorHora(desde, hasta, persona || null, mesa || null),
+          data.ePausasNorma(desde, hasta, persona || null, mesa || null),
         ]);
         if (!vivo) return;
-        setStats(s); setDias(d); setTraspasos(t); setErr("");
+        setStats(s); setStatsPrev(sp); setDias(d); setTraspasos(t); setPorHora(ph); setPausasNorma(pn); setErr("");
       } catch (e: any) {
         if (vivo) { setErr(e?.message ?? "Error consultando Supabase"); setStats(null); }
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
   }, [desde, hasta, persona, mesa]);
+
+  // Promedios del periodo anterior para el comparativo.
+  const pdPrev = Math.max(1, statsPrev?.persona_dias ?? 0);
+  const promPrev = (campo: string) => (statsPrev?.[campo] != null && statsPrev.persona_dias > 0 ? statsPrev[campo] / pdPrev : null);
 
   // Promedios por persona-día trabajado (día con sesión o gestiones).
   const pd = Math.max(1, stats?.persona_dias ?? 0);
@@ -1058,13 +1132,20 @@ function EstadisticasView() {
       ) : !stats ? <div className="card mt20"><div className="empty">Sin actividad registrada en el periodo seleccionado.</div></div> : (
         <>
           <div className="grid six mt16">
-            <Stat icon={Clock} value={promMin(stats.minutos_app)} label="Tiempo en la app · prom./día" color="#0098D6" />
-            <Stat icon={Activity} value={promMin(stats.minutos_pc)} label="Gestión en el PC · prom./día" color="#14B8C4" />
-            <Stat icon={TrendingUp} value={aprovechamiento != null ? aprovechamiento + "%" : "—"} label="PC activo vs tiempo en app" color="#6D5AE6" pct={aprovechamiento ?? 0} />
-            <Stat icon={ListChecks} value={+((stats.gestiones ?? 0) / pd).toFixed(1)} label="Gestiones · prom./día" color="#26B07A" />
-            <Stat icon={FileText} value={promMin(stats.minutos_gestion)} label="Tiempo registrado · prom./día" color="#D858A0" />
-            <Stat icon={CircleDot} value={promMin(stats.minutos_pausa)} label="Pausas · prom./día" color="#F2A33C" />
+            <Stat icon={Clock} value={promMin(stats.minutos_app)} label="Tiempo en la app · prom./día" color="#0098D6"
+              {...calcDelta((stats.minutos_app ?? 0) / pd, promPrev("minutos_app"), "m")} />
+            <Stat icon={Activity} value={promMin(stats.minutos_pc)} label="Gestión en el PC · prom./día" color="#14B8C4"
+              {...calcDelta((stats.minutos_pc ?? 0) / pd, promPrev("minutos_pc"), "m")} />
+            <Stat icon={TrendingUp} value={aprovechamiento != null ? aprovechamiento + "%" : "—"} label="PC activo vs tiempo en app" color="#6D5AE6" pct={aprovechamiento ?? 0}
+              {...calcDelta(aprovechamiento, statsPrev?.minutos_app > 0 ? Math.round((100 * (statsPrev?.minutos_pc ?? 0)) / statsPrev.minutos_app) : null, "%")} />
+            <Stat icon={ListChecks} value={+((stats.gestiones ?? 0) / pd).toFixed(1)} label="Gestiones · prom./día" color="#26B07A"
+              {...calcDelta((stats.gestiones ?? 0) / pd, promPrev("gestiones"))} />
+            <Stat icon={FileText} value={promMin(stats.minutos_gestion)} label="Tiempo registrado · prom./día" color="#D858A0"
+              {...calcDelta((stats.minutos_gestion ?? 0) / pd, promPrev("minutos_gestion"), "m")} />
+            <Stat icon={CircleDot} value={promMin(stats.minutos_pausa)} label="Pausas · prom./día" color="#F2A33C"
+              {...calcDelta((stats.minutos_pausa ?? 0) / pd, promPrev("minutos_pausa"), "m", true)} />
           </div>
+          <div className="sub tiny mt6">Comparado contra el periodo anterior del mismo tamaño.</div>
 
           <div className="card mt15">
             <div className="h2 mb4">Tiempos por día</div>
@@ -1117,6 +1198,45 @@ function EstadisticasView() {
                           <td><ArrowRight size={14} className="dim" /></td>
                           <td className="bold s12">{firstLast(t.para_nombre, t.para_apellido)}<div className="sub tiny">{t.para_cargo}</div></td>
                           <td className="mono bold">{t.casos}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>}
+            </div>
+          </div>
+
+          <div className="grid two mt15">
+            <div className="card">
+              <div className="h2 mb4">Gestiones por hora del día</div>
+              <div className="sub small mb10">A qué horas se concentra el trabajo — los valles de media jornada que el promedio diario esconde.</div>
+              {porHora.length === 0 ? <div className="empty pad24">Sin gestiones en el periodo.</div> :
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={porHora.map((h: any) => ({ hora: `${String(h.hora).padStart(2, "0")}h`, gestiones: h.gestiones }))} margin={{ left: -22 }}>
+                    <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                    <XAxis dataKey="hora" tick={{ fontSize: 10, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={1} />
+                    <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                    <Bar dataKey="gestiones" name="Gestiones" fill="#0098D6" radius={[4, 4, 0, 0]} maxBarSize={16} />
+                  </BarChart>
+                </ResponsiveContainer>}
+            </div>
+            <div className="card">
+              <div className="h2 mb4">Pausas fuera de norma</div>
+              <div className="sub small mb10">Breaks de más de 15 min, almuerzos de más de 60, y frecuencia de baño en el periodo.</div>
+              {pausasNorma.length === 0 ? <div className="empty pad24">Sin pausas registradas en el periodo.</div> :
+                <div className="tblscroll">
+                  <table className="tbl">
+                    <thead><tr><th>Persona</th><th>Pausas</th><th>Total</th><th>Breaks &gt;15m</th><th>Almuerzos &gt;60m</th><th>Baño</th></tr></thead>
+                    <tbody>
+                      {pausasNorma.map((p: any) => (
+                        <tr key={p.user_id}>
+                          <td className="bold s12">{firstLast(p.nombre, p.apellido)}<div className="sub tiny">{p.cargo}</div></td>
+                          <td className="mono">{p.pausas}</td>
+                          <td className="mono">{fmtMin(p.minutos_pausa)}</td>
+                          <td>{p.breaks_largos > 0 ? <span className="chip alto">{p.breaks_largos}</span> : <span className="faint">0</span>}</td>
+                          <td>{p.almuerzos_largos > 0 ? <span className="chip alto">{p.almuerzos_largos}</span> : <span className="faint">0</span>}</td>
+                          <td className="mono">{p.banos > 0 ? `${p.banos} · ${fmtMin(p.minutos_bano)}` : <span className="faint">—</span>}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1275,7 +1395,8 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
   const [mesas, setMesas] = useState<any[]>([]);
   const [nueva, setNueva] = useState("");
   const [busy, setBusy] = useState(false);
-  const cargar = () => data.getMesas().then(setMesas).catch(() => {});
+  const [metas, setMetas] = useState<Record<string, number>>({});
+  const cargar = () => { data.getMesas().then(setMesas).catch(() => {}); data.getMetas().then(setMetas).catch(() => {}); };
   useEffect(() => { cargar(); }, []);
   const agregar = async () => {
     if (!nueva.trim()) return;
@@ -1284,14 +1405,27 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo agregar")); }
     finally { setBusy(false); }
   };
+  const guardarMeta = async (mesa: string, valor: string) => {
+    const n = Math.max(0, parseInt(valor || "0", 10) || 0);
+    setMetas((prev) => ({ ...prev, [mesa]: n }));
+    try { await data.guardarMeta(mesa, n); fire(`Meta de ${mesaLabel(mesa)}: ${n} gestiones/día`); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
+  };
   return (
     <div className="card">
       <div className="h2 mb4">Mesas del Help Desk</div>
-      <div className="sub small mb12">Los contenedores de la operación (Mayoristas, Gold, Premium…). Cada usuario pertenece a una mesa; los seniors y la barra de compañeros quedan encerrados en la suya.</div>
+      <div className="sub small mb12">Los contenedores de la operación (Mayoristas, Gold, Premium…). Cada usuario pertenece a una mesa; los seniors y la barra de compañeros quedan encerrados en la suya. La <b>meta</b> es el objetivo de gestiones por día por persona — alimenta el semáforo del ranking (0 = sin meta).</div>
       <div className="col9 mb12">
         {mesas.map((m: any) => (
           <div key={m.nombre} className="casecard">
             <div className="caseno">{mesaLabel(m.nombre)}</div>
+            <div className="gap9" style={{ alignItems: "center" }}>
+              <label className="sub tiny">Meta gestiones/día</label>
+              <input className="inp mono" style={{ width: 80 }} type="number" min={0}
+                defaultValue={metas[m.nombre] ?? 0}
+                key={m.nombre + (metas[m.nombre] ?? 0)}
+                onBlur={(e) => { if (+e.target.value !== (metas[m.nombre] ?? 0)) guardarMeta(m.nombre, e.target.value); }} />
+            </div>
           </div>
         ))}
       </div>
@@ -1731,8 +1865,13 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   const [enviando, setEnviando] = useState(false);
   const [okMsg, setOkMsg] = useState("");
   const [mesa, setMesa] = useState("");
-  const cargar = () => data.getPresencia(mesa || null).then((d) => { setFilas(d); setLoading(false); });
+  const [inasistencias, setInasistencias] = useState<any[]>([]);
+  const cargar = () => {
+    data.getPresencia(mesa || null).then((d) => { setFilas(d); setLoading(false); });
+    data.getInasistencias(mesa || null).then(setInasistencias).catch(() => {});
+  };
   useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [mesa]);
+  const inasistente = (userId: string) => inasistencias.find((x) => x.user_id === userId);
   const enLinea = filas.filter((f) => f.en_linea).length;
 
   const enviar = async () => {
@@ -1749,6 +1888,18 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   return (
     <>
     <AnunciosPanel perfil={perfil} />
+    {inasistencias.length > 0 && (
+      <div className="card mb14" style={{ borderLeft: "4px solid var(--danger)" }}>
+        <div className="h2 mb4"><AlertTriangle size={16} style={{ verticalAlign: "-3px" }} /> Inasistencia digital detectada</div>
+        <div className="sub small">
+          Con la app abierta pero <b>sin actividad en el PC hace más de 30 minutos</b> y sin pausa registrada:{" "}
+          {inasistencias.map((x: any, i: number) => (
+            <span key={x.user_id}><b>{firstLast(x.nombre, x.apellido)}</b> ({fmtMin(x.minutos_sin)}){i < inasistencias.length - 1 ? ", " : "."}</span>
+          ))}
+          {" "}Puedes enviarles una alerta desde la tabla.
+        </div>
+      </div>
+    )}
     <div className="card nopad">
       <div className="tblhead">
         <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y sus pausas. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
@@ -1771,6 +1922,10 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
                   {f.pausa_tipo ? (
                     <span className={"chip " + (ESTADO_CHIP[f.pausa_tipo] ?? "medio")} title={f.pausa_desde ? "Desde " + new Date(f.pausa_desde).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : ""}>
                       <CircleDot size={11} /> {PAUSA_LBL[f.pausa_tipo] ?? f.pausa_tipo}
+                    </span>
+                  ) : inasistente(f.user_id) ? (
+                    <span className="chip alto" title="App abierta, PC sin actividad y sin pausa registrada">
+                      <AlertTriangle size={11} /> Inactivo {fmtMin(inasistente(f.user_id).minutos_sin)}
                     </span>
                   ) : f.en_linea ? <span className="chip done"><span className="liveblip" /> En línea</span> : <span className="chip sin">Desconectado</span>}
                 </td>
