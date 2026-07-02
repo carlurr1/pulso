@@ -1,7 +1,7 @@
 {
   "name": "Pulso · Monitoreo de Productividad",
   "short_name": "Pulso",
-  "description": "Monitoreo de productividad — Help Desk ETB Mayoristas · Group COS",
+  "description": "Monitoreo de productividad — Help Desk ETB · Group COS",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
