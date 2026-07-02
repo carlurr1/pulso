@@ -90,6 +90,13 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
 
   const pend = bandeja.filter((a) => a.estado !== "gestionado").length;
   const done = bandeja.filter((a) => a.estado === "gestionado").length;
+
+  // Filtro de la lista de casos (pedido por los analistas/juniors).
+  const [filtroCaso, setFiltroCaso] = useState<"todos" | "pendiente" | "progreso" | "gestionado" | "atrasado">("todos");
+  const casosVisibles = bandeja.filter((a) =>
+    filtroCaso === "todos" ? true :
+    filtroCaso === "atrasado" ? (a.fecha < hoy() && a.estado !== "gestionado") :
+    a.estado === filtroCaso);
   const lastGestOf = (id: string) => actividad.find((g) => g.asignacion_id === id);
   const tName = (id: string) => catalogo.find((c) => c.id === id)?.nombre ?? "—";
   const tCat = (id: string) => catalogo.find((c) => c.id === id)?.categoria ?? "casos";
@@ -190,10 +197,22 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
       <div className="grid sidebarLayout">
         <div className="card">
           <div className="row-between mb14"><div className="h2">Casos asignados</div><span className="chip neutral">{bandeja.length} en total</span></div>
+          <div className="rolepick mb14">
+            {([
+              ["todos", `Todos (${bandeja.length})`],
+              ["pendiente", `Pendientes (${bandeja.filter((a) => a.estado === "pendiente").length})`],
+              ["progreso", `En progreso (${bandeja.filter((a) => a.estado === "progreso").length})`],
+              ["gestionado", `Cerrados (${bandeja.filter((a) => a.estado === "gestionado").length})`],
+              ["atrasado", `Atrasados (${bandeja.filter((a) => a.fecha < hoy() && a.estado !== "gestionado").length})`],
+            ] as [typeof filtroCaso, string][]).map(([v, label]) => (
+              <button key={v} className={"roleopt" + (filtroCaso === v ? " on" : "")} onClick={() => setFiltroCaso(v)}>{label}</button>
+            ))}
+          </div>
           {loading && <div className="empty">Cargando…</div>}
           {!loading && bandeja.length === 0 && <div className="empty"><Inbox size={32} className="dim" /><div>Aún no tienes casos asignados hoy.<br />Tu senior los reparte a primera hora.</div></div>}
+          {!loading && bandeja.length > 0 && casosVisibles.length === 0 && <div className="empty pad24">Sin casos en este filtro.</div>}
           <div className="col10">
-            {bandeja.map((a) => {
+            {casosVisibles.map((a) => {
               const lg = lastGestOf(a.id);
               return (
                 <div key={a.id} className="casecard">
