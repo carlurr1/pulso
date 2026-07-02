@@ -507,7 +507,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   const [tipos, setTipos] = useState<any[]>([]);
   const [tend, setTend] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
-  const [tiposCaso, setTiposCaso] = useState<any[]>([]);
+  const [topCasos, setTopCasos] = useState<any[]>([]);
   const [gestDia, setGestDia] = useState<any[]>([]);
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
@@ -524,10 +524,10 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
         const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
           data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
           data.gPorTipo(desde, hasta, p), data.gTendencia(desde, hasta, p), data.gPorCliente(desde, hasta, p),
-          data.gPorTipoCaso(desde, hasta, p), data.getGestionesDia(),
+          data.gTopCasos(desde, hasta, p), data.getGestionesDia(),
         ]);
         if (!vivo) return;
-        setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTiposCaso(tc); setGestDia(gd);
+        setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTopCasos(tc); setGestDia(gd);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
@@ -537,12 +537,14 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), gestiones: d.gestiones, horas: +(d.minutos / 60).toFixed(1) }));
   const roleData = roles.map((r) => ({ rol: r.rol, efectividad: r.efectividad ?? 0, carga: r.carga ?? 0 }));
   const maxCli = Math.max(1, ...clientes.map((c) => c.minutos));
+  const maxCaso = Math.max(1, ...topCasos.map((c) => c.minutos));
 
   const exportar = () => exportarExcel(`Pulso_${desde}_a_${hasta}`, [
     { nombre: "Resumen", filas: kpis ? [{ Desde: desde, Hasta: hasta, "Efectividad %": kpis.efectividad, "Productividad %": kpis.productividad, Gestiones: kpis.gestiones, "Tiempo (h)": +(kpis.minutos / 60).toFixed(1), Asignados: kpis.asignados, Gestionados: kpis.gestionados, Alertas: kpis.alertas }] : [] },
     { nombre: "Ranking", filas: ranking.map((r) => ({ Persona: firstLast(r.nombre, r.apellido), Cargo: r.cargo, Gestiones: r.gestiones, "Tiempo (h)": +(r.minutos / 60).toFixed(1), "Efectividad %": r.efectividad, "Carga %": r.carga })) },
     { nombre: "Por tipo", filas: tipos.map((t) => ({ Gestión: t.nombre, Cantidad: t.total, "Tiempo (h)": +(t.minutos / 60).toFixed(1) })) },
     { nombre: "Clientes", filas: clientes.map((c) => ({ Cliente: c.cliente, Casos: c.casos, Gestiones: c.gestiones, "Tiempo (h)": +(c.minutos / 60).toFixed(1) })) },
+    { nombre: "Top casos", filas: topCasos.map((c) => ({ Caso: c.numero_caso, Cliente: c.cliente ?? "", Gestiones: c.gestiones, Personas: c.personas, "Días": c.dias, "Tiempo (h)": +(c.minutos / 60).toFixed(1) })) },
   ]);
 
   if (tab === "auditoria") {
@@ -666,18 +668,20 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                 </div>}
             </div>
             <div className="card">
-              <div className="h2 mb4">Tiempo por tipo de caso <span className="sfbadge">Salesforce</span></div>
-              <div className="sub small mb12">Qué clase de caso consume más horas.</div>
-              {tiposCaso.length === 0 ? <div className="empty pad24">Sin datos de Salesforce todavía.</div> :
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={tiposCaso.map((t) => ({ nombre: (t.etiqueta || "").slice(0, 20), h: +(t.minutos / 60).toFixed(1) }))} layout="vertical" margin={{ left: 8 }}>
-                    <CartesianGrid horizontal={false} stroke="#EEF1F6" />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} unit="h" />
-                    <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                    <Bar dataKey="h" name="Horas" fill="#14B8C4" radius={[0, 5, 5, 0]} maxBarSize={16} />
-                  </BarChart>
-                </ResponsiveContainer>}
+              <div className="h2 mb4">Casos que más tiempo consumen</div>
+              <div className="sub small mb12">Reincidencia: casos puntuales que acumulan horas — candidatos a revisar o escalar.</div>
+              {topCasos.length === 0 ? <div className="empty pad24">Sin gestiones en el periodo.</div> :
+                <div className="col9">
+                  {topCasos.slice(0, 8).map((c: any) => (
+                    <div key={c.numero_caso}>
+                      <div className="row-between mb5">
+                        <span className="pname">#{c.numero_caso}{c.cliente && <span className="faint"> · {c.cliente}</span>}</span>
+                        <span className="mono soft s12">{horas(c.minutos)} · {c.gestiones} gest. · {c.dias} {c.dias === 1 ? "día" : "días"}</span>
+                      </div>
+                      <div className="prog"><div className="progfill" style={{ width: (c.minutos / maxCaso) * 100 + "%", background: "#14B8C4" }} /></div>
+                    </div>
+                  ))}
+                </div>}
             </div>
           </div>
         </>
