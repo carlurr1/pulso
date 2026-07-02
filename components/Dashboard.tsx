@@ -104,6 +104,23 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
     return () => clearInterval(t);
   }, []);
 
+  // Contenedor general del grupo (casos cruzados entre subsegmentos).
+  const [pool, setPool] = useState<any[]>([]);
+  const [mesas, setMesas] = useState<any[]>([]);
+  const [poolBusy, setPoolBusy] = useState<string | null>(null);
+  const reloadPool = () => data.getPoolPendientes().then(setPool).catch(() => {});
+  useEffect(() => {
+    reloadPool(); data.getMesas().then(setMesas).catch(() => {});
+    const t = setInterval(reloadPool, 60000);
+    return () => clearInterval(t);
+  }, []);
+  const tomarPool = async (p: any) => {
+    setPoolBusy(p.id);
+    try { await data.poolAsignar(p.id, perfil.id); fire(`Caso #${p.numero_caso} tomado — ya está en tu bandeja`); reload(); reloadPool(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setPoolBusy(null); }
+  };
+
   const salir = async (tipo: data.PausaTipo) => {
     setPausaBusy(true);
     try { await data.iniciarPausa(perfil.id, tipo); await reloadTurno(); fire(`En ${PAUSA_LBL[tipo].toLowerCase()} — tu tiempo está en pausa`); }
@@ -147,6 +164,16 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
       // Reuniones/internas no llevan caso: se les asigna un id interno único (no visible al usuario).
       const numeroCaso = sinCaso ? `REU-${Date.now()}` : caso;
       const seguirReal = sinCaso ? false : seguir;
+      // Enviar al contenedor de otra mesa: la creación cuenta como mi gestión,
+      // el caso queda en el contenedor hasta que el senior de esa mesa lo asigne.
+      if (destinoId && destinoId.startsWith("pool:")) {
+        const mesaDest = destinoId.slice(5);
+        await data.crearYEnviarPool({ userId: perfil.id, tipoId, numeroCaso, minutos: min, mesa: mesaDest });
+        setModal(null);
+        fire("Caso creado y enviado al contenedor de " + mesaLabel(mesaDest));
+        reload(); reloadPool();
+        return;
+      }
       // Otro segmento (no mayoristas): solo cuenta la creación, no queda en ninguna bandeja.
       if (destinoId === "__ext__") {
         await data.crearOtroSegmento({ userId: perfil.id, tipoId, minutos: min, numeroCaso });
@@ -214,6 +241,28 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
           )}
         </div>
       </div>
+
+      {pool.length > 0 && (
+        <div className="card mt15">
+          <div className="row-between mb10"><div className="h2">Contenedor general</div><span className="chip medio">{pool.length} sin asignar</span></div>
+          <div className="sub small mb10">Casos enviados al contenedor de tu grupo. Los de tu mesa puedes tomarlos ya; los de otras mesas del grupo los asigna su senior (o tú mismo en fin de semana).</div>
+          <div className="col9">
+            {pool.map((p: any) => (
+              <div key={p.id} className="casecard">
+                <div className="min0">
+                  <div className="caseno">#{p.numero_caso}</div>
+                  {p.cliente && <div className="caseCli">{p.cliente}</div>}
+                  <div className="caseMeta">
+                    <span className="chip bajo s11">{mesaLabel(p.mesa)}</span>
+                    {p.creador && <span className="faint">· envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
+                  </div>
+                </div>
+                <button className="btn primary sm" disabled={poolBusy === p.id} onClick={() => tomarPool(p)}>Tomármelo</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {companeros.length > 1 && (
         <div className="card mt15">
@@ -313,12 +362,13 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         </div>
       </div>
 
-      {modal && <RegistrarModal modal={modal} catalogo={catalogo} incluirSenior={incluirSenior} equipo={equipo} yoId={perfil.id} onClose={() => setModal(null)} onSave={onSave} />}
+      {modal && <RegistrarModal modal={modal} catalogo={catalogo} incluirSenior={incluirSenior} equipo={equipo} yoId={perfil.id}
+        mesasPool={mesas.filter((m: any) => m.nombre !== perfil.mesa)} onClose={() => setModal(null)} onSave={onSave} />}
     </>
   );
 }
 
-function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = false, equipo = [], yoId }: any) {
+function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = false, equipo = [], yoId, mesasPool = [] }: any) {
   const [tipoId, setTipoId] = useState<string | null>(null);
   const [caso, setCaso] = useState<string>(modal.asignacion?.numero_caso ?? "");
   const [min, setMin] = useState<string>("");
@@ -409,6 +459,18 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                   <option key={u.id} value={u.id}>{u.nombre}{u.apellido ? " " + u.apellido : ""}{u.cargo ? " · " + u.cargo : ""}</option>
                 ))}
               </select>
+              {!masivo && mesasPool.length > 0 && (
+                <>
+                  <div className="destdiv">o envíalo al contenedor de otra mesa</div>
+                  <select className="inp" value={String(destino).startsWith("pool:") ? destino : ""} onChange={(e) => setDestino(e.target.value)}>
+                    <option value="">Selecciona la mesa del caso…</option>
+                    {mesasPool.map((m: any) => (
+                      <option key={m.nombre} value={"pool:" + m.nombre}>Contenedor de {mesaLabel(m.nombre)}</option>
+                    ))}
+                  </select>
+                  <div className="sub tiny mt3">El senior de esa mesa lo verá en su contenedor y lo asignará a su equipo.</div>
+                </>
+              )}
               {masivo && (
                 <label className="destopt" style={{ cursor: "pointer" }}>
                   <span className="destlbl" style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -471,6 +533,22 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     } catch (e: any) { fire("Error: " + e.message); }
   };
   const quitar = async (id: string) => { await data.quitarAsignacion(id); data.getMiBandeja(sel).then(setBandeja); };
+
+  // Contenedor general de MI mesa: los casos que otras mesas nos enviaron.
+  const [pool, setPool] = useState<any[]>([]);
+  const reloadPool = () => data.getPoolPendientes().then((l: any[]) => setPool(l.filter((p) => p.mesa === perfil.mesa))).catch(() => {});
+  useEffect(() => { reloadPool(); const t = setInterval(reloadPool, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, []);
+  const asignarPool = async (poolId: string, destinoId: string) => {
+    if (!destinoId) return;
+    try {
+      await data.poolAsignar(poolId, destinoId);
+      const d = equipo.find((u) => u.id === destinoId);
+      fire("Caso del contenedor asignado a " + (destinoId === perfil.id ? "ti" : d ? d.nombre : "el analista"));
+      reloadPool();
+      if (destinoId === sel) data.getMiBandeja(sel).then(setBandeja);
+    } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo asignar")); }
+  };
+
   const [reasignando, setReasignando] = useState<string | null>(null);
   const reasignar = async (asignacionId: string, destinoId: string) => {
     if (!destinoId || destinoId === sel) { setReasignando(null); return; }
@@ -506,6 +584,32 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
             <textarea className="inp" value={bulk} placeholder={"012345678\n012345679"} onChange={(e) => setBulk(e.target.value)} />
             <div className="row-end mt12"><button className="btn primary" disabled={!bulk.trim()} onClick={repartir}><Plus size={16} />Asignar a la bandeja</button></div>
           </div>
+
+          {pool.length > 0 && (
+            <div className="card mt15">
+              <div className="row-between mb10"><div className="h2">Contenedor general de tu mesa</div><span className="chip medio">{pool.length} sin asignar</span></div>
+              <div className="sub small mb10">Casos que otras mesas enviaron a {perfil.mesa ? mesaLabel(perfil.mesa) : "tu mesa"}. Asígnalos a tu equipo.</div>
+              <div className="col9">
+                {pool.map((p: any) => (
+                  <div key={p.id} className="casecard">
+                    <div className="min0">
+                      <div className="caseno">#{p.numero_caso}</div>
+                      {p.cliente && <div className="caseCli">{p.cliente}</div>}
+                      <div className="caseMeta">
+                        {p.creador && <span className="faint">envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
+                        <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+                      </div>
+                    </div>
+                    <select className="inp dateinp" defaultValue="" onChange={(e) => asignarPool(p.id, e.target.value)}>
+                      <option value="">Asignar a…</option>
+                      {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
+                      <option value={perfil.id}>Yo ({perfil.nombre})</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="card">
             <div className="row-between mb12"><div className="h2">Bandeja actual</div><span className="chip neutral">{bandeja.length} casos</span></div>
             {bandeja.length === 0 ? <div className="empty pad24">Sin casos asignados todavía.</div> :
@@ -575,13 +679,17 @@ function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) =>
   const [mesas, setMesas] = useState<any[]>([]);
   useEffect(() => { data.getMesas().then(setMesas).catch(() => {}); }, []);
   if (mesas.length < 2) return null;   // con una sola mesa no hay nada que filtrar
+  // Grupos con más de una mesa (ej. PREMIUM con Premium 1..4): opción "todo el grupo".
+  const grupos = [...new Set(mesas.map((m: any) => m.grupo || m.nombre))]
+    .filter((g) => mesas.filter((m: any) => (m.grupo || m.nombre) === g).length > 1);
   return (
-    <div className="rolepick">
-      <button className={"roleopt" + (mesa === "" ? " on" : "")} onClick={() => setMesa("")}>Todas</button>
-      {mesas.map((m: any) => (
-        <button key={m.nombre} className={"roleopt" + (mesa === m.nombre ? " on" : "")} onClick={() => setMesa(m.nombre)}>{mesaLabel(m.nombre)}</button>
+    <select className="inp dateinp" value={mesa} onChange={(e) => setMesa(e.target.value)}>
+      <option value="">Todas las mesas</option>
+      {grupos.map((g: string) => <option key={"g:" + g} value={g}>{mesaLabel(g)} · todo el grupo</option>)}
+      {mesas.filter((m: any) => !grupos.includes(m.nombre)).map((m: any) => (
+        <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>
       ))}
-    </div>
+    </select>
   );
 }
 
@@ -1394,6 +1502,7 @@ const CARGOS = ["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder
 function MesaConfig({ fire }: { fire: (m: string) => void }) {
   const [mesas, setMesas] = useState<any[]>([]);
   const [nueva, setNueva] = useState("");
+  const [grupoNuevo, setGrupoNuevo] = useState("");
   const [busy, setBusy] = useState(false);
   const [metas, setMetas] = useState<Record<string, number>>({});
   const cargar = () => { data.getMesas().then(setMesas).catch(() => {}); data.getMetas().then(setMetas).catch(() => {}); };
@@ -1401,7 +1510,7 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
   const agregar = async () => {
     if (!nueva.trim()) return;
     setBusy(true);
-    try { await data.agregarMesa(nueva); setNueva(""); fire("Mesa agregada"); cargar(); }
+    try { await data.agregarMesa(nueva, grupoNuevo.trim() || undefined); setNueva(""); setGrupoNuevo(""); fire("Mesa agregada"); cargar(); }
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo agregar")); }
     finally { setBusy(false); }
   };
@@ -1418,7 +1527,10 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
       <div className="col9 mb12">
         {mesas.map((m: any) => (
           <div key={m.nombre} className="casecard">
-            <div className="caseno">{mesaLabel(m.nombre)}</div>
+            <div>
+              <div className="caseno">{mesaLabel(m.nombre)}</div>
+              {m.grupo && m.grupo !== m.nombre && <span className="chip neutral s11">Grupo {mesaLabel(m.grupo)}</span>}
+            </div>
             <div className="gap9" style={{ alignItems: "center" }}>
               <label className="sub tiny">Meta gestiones/día</label>
               <input className="inp mono" style={{ width: 80 }} type="number" min={0}
@@ -1430,10 +1542,11 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
         ))}
       </div>
       <div className="gap9">
-        <input className="inp upper" value={nueva} placeholder="NUEVA MESA (EJ. CORPORATIVO)" onChange={(e) => setNueva(e.target.value.toUpperCase())} />
+        <input className="inp upper" value={nueva} placeholder="NUEVA MESA (EJ. SILVER 1)" onChange={(e) => setNueva(e.target.value.toUpperCase())} />
+        <input className="inp upper" style={{ maxWidth: 200 }} value={grupoNuevo} placeholder="GRUPO (EJ. SILVER)" onChange={(e) => setGrupoNuevo(e.target.value.toUpperCase())} />
         <button className="btn primary" disabled={busy || !nueva.trim()} onClick={agregar}><Plus size={16} />Agregar</button>
       </div>
-      <div className="sub tiny mt8">Las mesas no se eliminan desde aquí para no dejar usuarios huérfanos; si necesitas retirar una, reasigna primero a su gente.</div>
+      <div className="sub tiny mt8">El <b>grupo</b> une subsegmentos (ej. Premium 1..4 bajo PREMIUM): habilita el filtro "todo el grupo", el contenedor compartido y la auto-asignación de fin de semana. Si lo dejas vacío, la mesa es su propio grupo. Las mesas no se eliminan desde aquí para no dejar usuarios huérfanos.</div>
     </div>
   );
 }
