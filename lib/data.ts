@@ -265,6 +265,42 @@ export async function agregarMesa(nombre: string) {
   const { error } = await sb.from("mesas").insert({ nombre: nombre.toUpperCase().trim(), orden: 99 });
   if (error) throw error;
 }
+// Metas de gestiones/día por mesa (semáforo del ranking).
+export async function getMetas(): Promise<Record<string, number>> {
+  const sb = createClient();
+  const { data } = await sb.from("metas_mesa").select("*");
+  return Object.fromEntries((data ?? []).map((m: any) => [m.mesa, m.gestiones_dia]));
+}
+export async function guardarMeta(mesa: string, gestionesDia: number) {
+  const sb = createClient();
+  const { error } = await sb.from("metas_mesa").upsert({ mesa, gestiones_dia: gestionesDia, actualizado_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+// ── Supervisión avanzada ──────────────────────────────────────────
+// Personas en línea SIN pausa y SIN actividad de PC hace >30 min.
+export async function getInasistencias(mesa?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("inasistencias_ahora", { p_mesa: mesa || null });
+  return data ?? [];
+}
+export async function ePausasNorma(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("e_pausas_norma", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+export async function eResolucion(desde: string, hasta: string, mesa?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("e_resolucion", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
+  return data ?? [];
+}
+export async function ePorHora(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("e_por_hora", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
 
 // ── Gerencial (rango de fechas + persona y mesa opcionales) ───────
 export async function gKpis(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
