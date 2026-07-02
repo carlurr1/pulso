@@ -269,9 +269,10 @@ export async function gPorTipo(desde: string, hasta: string, user?: string | nul
   const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
-export async function gTendencia(desde: string, hasta: string, user?: string | null) {
+// Tendencia diaria con los mismos KPIs del encabezado (efectividad/productividad).
+export async function gTendenciaKpi(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_tendencia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_tendencia_kpi", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
 export async function gPorCliente(desde: string, hasta: string, user?: string | null) {
