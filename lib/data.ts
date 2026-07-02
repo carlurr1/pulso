@@ -398,6 +398,66 @@ export function suscribirAlertas(userId: string, onAlerta: (a: any) => void) {
   return () => { sb.removeChannel(ch); };
 }
 
+// ── ANUNCIOS ANCLADOS (con confirmación de lectura) ───────────────
+export async function crearAnuncio(mensaje: string, requiereRespuesta: boolean, deNombre: string) {
+  const sb = createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from("anuncios").insert({
+    de_user_id: user?.id ?? null, de_nombre: deNombre, mensaje, requiere_respuesta: requiereRespuesta,
+  });
+  if (error) throw error;
+}
+export async function desactivarAnuncio(id: string) {
+  const sb = createClient();
+  const { error } = await sb.from("anuncios").update({ activo: false }).eq("id", id);
+  if (error) throw error;
+}
+// Anuncios activos que YO aún no he confirmado (para la ventana bloqueante).
+export async function getAnunciosPendientes(userId: string) {
+  const sb = createClient();
+  const [{ data: activos }, { data: mias }] = await Promise.all([
+    sb.from("anuncios").select("*").eq("activo", true).order("created_at"),
+    sb.from("anuncio_confirmaciones").select("anuncio_id").eq("user_id", userId),
+  ]);
+  const vistas = new Set((mias ?? []).map((c: any) => c.anuncio_id));
+  return (activos ?? []).filter((a: any) => !vistas.has(a.id));
+}
+export async function confirmarAnuncio(anuncioId: string, userId: string, respuesta?: string | null) {
+  const sb = createClient();
+  const { error } = await sb.from("anuncio_confirmaciones").insert({
+    anuncio_id: anuncioId, user_id: userId, respuesta: respuesta?.trim() || null,
+  });
+  if (error && (error as any).code !== "23505") throw error;   // confirmación repetida: ignorar
+}
+export function suscribirAnuncios(onAnuncio: (a: any) => void) {
+  const sb = createClient();
+  const ch = sb
+    .channel("anuncios")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "anuncios" }, (payload) => onAnuncio(payload.new))
+    .subscribe();
+  return () => { sb.removeChannel(ch); };
+}
+// Gestión (coordinador): anuncios recientes con sus confirmaciones y respuestas.
+export async function getAnunciosConEstado() {
+  const sb = createClient();
+  const { data: anuncios } = await sb.from("anuncios").select("*").order("created_at", { ascending: false }).limit(10);
+  const lista = anuncios ?? [];
+  if (!lista.length) return [];
+  const ids = lista.map((a: any) => a.id);
+  const { data: confs } = await sb.from("anuncio_confirmaciones").select("*").in("anuncio_id", ids);
+  const { data: equipo } = await sb.from("usuarios").select("id, nombre, apellido")
+    .eq("activo", true).in("rol", ["agente", "senior"]);
+  const umap = new Map((equipo ?? []).map((u: any) => [u.id, u]));
+  return lista.map((a: any) => ({
+    ...a,
+    total_equipo: (equipo ?? []).length,
+    confirmaciones: (confs ?? [])
+      .filter((c: any) => c.anuncio_id === a.id)
+      .map((c: any) => ({ ...c, usuario: umap.get(c.user_id) ?? null }))
+      .sort((x: any, y: any) => x.confirmado_at.localeCompare(y.confirmado_at)),
+  }));
+}
+
 // ── AUDITORÍA (vista coordinador) ─────────────────────────────────
 export async function getGestionesDia(fecha = hoy()) {
   const sb = createClient();
