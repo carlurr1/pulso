@@ -76,6 +76,7 @@
 .chip.pend{background:var(--danger-50);color:var(--danger)}
 .chip.prog{background:var(--warn-50);color:var(--warn)}
 .chip.done{background:var(--ok-50);color:var(--ok)}
+.chip.late{background:var(--warn-50);color:var(--warn)}
 .chip.neutral{background:var(--surface-2);color:var(--ink-soft)}
 .chip.alto{background:var(--danger-50);color:var(--danger)}
 .chip.medio{background:var(--warn-50);color:var(--warn)}
@@ -345,6 +346,9 @@ code{font-family:'JetBrains Mono',monospace;background:var(--surface-2);padding:
 
 /* ── Alerta entrante (tiempo real) ── */
 .overlay.alta{z-index:200}
+.overlay.gate{z-index:300}
+.gatetitle{font-family:var(--display);font-weight:800;font-size:19px;color:var(--ink);margin-bottom:10px}
+.gatemsg{font-size:14px;color:var(--ink-soft);line-height:1.55;margin-bottom:20px;text-align:left}
 .alertcard{background:#fff;border-radius:20px;padding:30px 28px;width:min(380px,92vw);text-align:center;box-shadow:0 24px 70px rgba(10,40,80,.32);animation:pop .22s ease}
 @keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
 .alertico{width:64px;height:64px;border-radius:50%;background:var(--primary-50);color:var(--primary);display:grid;place-items:center;margin:0 auto 16px;animation:ring 1s ease infinite}

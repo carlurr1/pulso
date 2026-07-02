@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+; Pre-concede el permiso de Idle Detection a Pulso en Google Chrome.
+; EDITAR el dominio antes de distribuir. Ejecutar como administrador.
+; Verificar luego en chrome://policy
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\IdleDetectionAllowedForUrls]
+"1"="https://TU-DOMINIO-DE-PULSO"
+
+; Si los puestos usan Microsoft Edge, descomentar (quitar el ';') estas líneas:
+;[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\IdleDetectionAllowedForUrls]
+;"1"="https://TU-DOMINIO-DE-PULSO"
