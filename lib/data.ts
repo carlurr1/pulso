@@ -58,12 +58,13 @@ export async function getMiBandeja(userId: string, fecha = hoy()): Promise<Asign
 
 // Bandeja de TODO el equipo en un rango: cada caso asignado, a quién y su
 // estado. Solo privilegiados (RLS lo restringe). Enriquece cliente (Salesforce).
-export async function getBandejaEquipo(desde: string, hasta: string, personaId?: string | null) {
+export async function getBandejaEquipo(desde: string, hasta: string, personaId?: string | null, mesa?: string | null) {
   const sb = createClient();
   let q = sb.from("asignaciones").select("*")
     .gte("fecha", desde).lte("fecha", hasta)
     .order("fecha", { ascending: false }).order("created_at", { ascending: false });
   if (personaId) q = q.eq("user_id", personaId);
+  if (mesa) q = q.eq("mesa", mesa);
   const { data } = await q;
   const filas = (data ?? []) as any[];
   if (!filas.length) return [];
@@ -184,10 +185,11 @@ export async function crearOtroSegmento(opts: {
 }
 
 // ── REPARTIR SEGUIMIENTO (vista senior) ───────────────────────────
-export async function getEquipo(): Promise<Usuario[]> {
+export async function getEquipo(mesa?: string | null): Promise<Usuario[]> {
   const sb = createClient();
-  const { data } = await sb.from("usuarios").select("*")
-    .eq("activo", true).order("nombre");
+  let q = sb.from("usuarios").select("*").eq("activo", true).order("nombre");
+  if (mesa) q = q.eq("mesa", mesa);
+  const { data } = await q;
   return (data ?? []) as Usuario[];
 }
 
@@ -252,64 +254,76 @@ export async function getMetricasPorCliente(dias = 7) {
   return data ?? [];
 }
 
-// ── Gerencial (rango de fechas + persona opcional) ───────────────
-export async function gKpis(desde: string, hasta: string, user?: string | null) {
+// ── Mesas (contenedores: Mayoristas, Gold, Premium…) ─────────────
+export async function getMesas() {
   const sb = createClient();
-  const { data } = await sb.rpc("g_kpis", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.from("mesas").select("*").order("orden");
+  return data ?? [];
+}
+export async function agregarMesa(nombre: string) {
+  const sb = createClient();
+  const { error } = await sb.from("mesas").insert({ nombre: nombre.toUpperCase().trim(), orden: 99 });
+  if (error) throw error;
+}
+
+// ── Gerencial (rango de fechas + persona y mesa opcionales) ───────
+export async function gKpis(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_kpis", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   return (data?.[0]) ?? null;
 }
-export async function gRanking(desde: string, hasta: string) {
+export async function gRanking(desde: string, hasta: string, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_ranking", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_ranking", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
   return data ?? [];
 }
-export async function gPorRol(desde: string, hasta: string) {
+export async function gPorRol(desde: string, hasta: string, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_rol", { p_desde: desde, p_hasta: hasta });
+  const { data } = await sb.rpc("g_por_rol", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
   return data ?? [];
 }
-export async function gPorTipo(desde: string, hasta: string, user?: string | null) {
+export async function gPorTipo(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_por_tipo", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   return data ?? [];
 }
 // Tendencia diaria con los mismos KPIs del encabezado (efectividad/productividad).
-export async function gTendenciaKpi(desde: string, hasta: string, user?: string | null) {
+export async function gTendenciaKpi(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_tendencia_kpi", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_tendencia_kpi", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   return data ?? [];
 }
 
 // ── Estadísticas de supervisión (tiempo app/PC, traspasos) ────────
 //    Estas SÍ lanzan el error de Supabase: la vista lo muestra tal cual
 //    para poder diagnosticar (función faltante, caché, tipos, etc.).
-export async function eStats(desde: string, hasta: string, user?: string | null) {
+export async function eStats(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data, error } = await sb.rpc("e_stats", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data, error } = await sb.rpc("e_stats", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   if (error) throw new Error(error.message);
   return (data as any[])?.[0] ?? null;
 }
-export async function eStatsDia(desde: string, hasta: string, user?: string | null) {
+export async function eStatsDia(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data, error } = await sb.rpc("e_stats_dia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data, error } = await sb.rpc("e_stats_dia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   if (error) throw new Error(error.message);
   return data ?? [];
 }
-export async function eTraspasos(desde: string, hasta: string) {
+export async function eTraspasos(desde: string, hasta: string, mesa?: string | null) {
   const sb = createClient();
-  const { data, error } = await sb.rpc("e_traspasos", { p_desde: desde, p_hasta: hasta });
+  const { data, error } = await sb.rpc("e_traspasos", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
   if (error) throw new Error(error.message);
   return data ?? [];
 }
-export async function gPorCliente(desde: string, hasta: string, user?: string | null) {
+export async function gPorCliente(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   return data ?? [];
 }
 // Top de casos que más tiempo acumulan en el periodo (reincidencia).
-export async function gTopCasos(desde: string, hasta: string, user?: string | null) {
+export async function gTopCasos(desde: string, hasta: string, user?: string | null, mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_top_casos", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_top_casos", { p_desde: desde, p_hasta: hasta, p_user: user ?? null, p_mesa: mesa || null });
   return data ?? [];
 }
 
@@ -331,9 +345,9 @@ export async function cerrarSesion(id: string) {
   const sb = createClient();
   await sb.from("sesiones").update({ fin: new Date().toISOString() }).eq("id", id);
 }
-export async function getPresencia() {
+export async function getPresencia(mesa?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("presencia_hoy");
+  const { data } = await sb.rpc("presencia_hoy", { p_mesa: mesa || null });
   return data ?? [];
 }
 
@@ -414,11 +428,12 @@ export async function getClienteCaso(numeroCaso: string): Promise<string | null>
 }
 
 // ── ANUNCIOS ANCLADOS (con confirmación de lectura) ───────────────
-export async function crearAnuncio(mensaje: string, requiereRespuesta: boolean, deNombre: string) {
+export async function crearAnuncio(mensaje: string, requiereRespuesta: boolean, deNombre: string, mesa?: string | null) {
   const sb = createClient();
   const { data: { user } } = await sb.auth.getUser();
   const { error } = await sb.from("anuncios").insert({
     de_user_id: user?.id ?? null, de_nombre: deNombre, mensaje, requiere_respuesta: requiereRespuesta,
+    mesa: mesa || null,   // null = toda la operación
   });
   if (error) throw error;
 }
@@ -428,14 +443,15 @@ export async function desactivarAnuncio(id: string) {
   if (error) throw error;
 }
 // Anuncios activos que YO aún no he confirmado (para la ventana bloqueante).
-export async function getAnunciosPendientes(userId: string) {
+// Solo los de mi mesa o los de toda la operación (mesa null).
+export async function getAnunciosPendientes(userId: string, miMesa?: string | null) {
   const sb = createClient();
   const [{ data: activos }, { data: mias }] = await Promise.all([
     sb.from("anuncios").select("*").eq("activo", true).order("created_at"),
     sb.from("anuncio_confirmaciones").select("anuncio_id").eq("user_id", userId),
   ]);
   const vistas = new Set((mias ?? []).map((c: any) => c.anuncio_id));
-  return (activos ?? []).filter((a: any) => !vistas.has(a.id));
+  return (activos ?? []).filter((a: any) => !vistas.has(a.id) && (!a.mesa || !miMesa || a.mesa === miMesa));
 }
 export async function confirmarAnuncio(anuncioId: string, userId: string, respuesta?: string | null) {
   const sb = createClient();
@@ -460,12 +476,13 @@ export async function getAnunciosConEstado() {
   if (!lista.length) return [];
   const ids = lista.map((a: any) => a.id);
   const { data: confs } = await sb.from("anuncio_confirmaciones").select("*").in("anuncio_id", ids);
-  const { data: equipo } = await sb.from("usuarios").select("id, nombre, apellido")
+  const { data: equipo } = await sb.from("usuarios").select("id, nombre, apellido, mesa")
     .eq("activo", true).in("rol", ["agente", "senior"]);
   const umap = new Map((equipo ?? []).map((u: any) => [u.id, u]));
   return lista.map((a: any) => ({
     ...a,
-    total_equipo: (equipo ?? []).length,
+    // El total esperado depende del alcance del anuncio (mesa o toda la operación).
+    total_equipo: (equipo ?? []).filter((u: any) => !a.mesa || u.mesa === a.mesa).length,
     confirmaciones: (confs ?? [])
       .filter((c: any) => c.anuncio_id === a.id)
       .map((c: any) => ({ ...c, usuario: umap.get(c.user_id) ?? null }))

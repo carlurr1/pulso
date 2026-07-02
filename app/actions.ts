@@ -19,7 +19,7 @@ async function exigirAdmin() {
 //    y no romper la pantalla.
 export async function crearUsuario(input: {
   login: string; nombre: string; apellido: string; rol: Rol;
-  cargo: string; password: string; code?: string; documento?: string;
+  cargo: string; password: string; code?: string; documento?: string; mesa?: string;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
   try { await exigirAdmin(); } catch { return { ok: false, error: "No autorizado. Vuelve a iniciar sesión como superadmin." }; }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -52,6 +52,7 @@ export async function crearUsuario(input: {
   const { error: e2 } = await admin.from("usuarios").insert({
     id: authUser.user.id, login: input.login.toUpperCase(), nombre: input.nombre,
     apellido: input.apellido, rol: input.rol, cargo: input.cargo, code: input.code || null,
+    mesa: input.mesa || "MAYORISTAS",
   });
   if (e2) {
     await admin.auth.admin.deleteUser(authUser.user.id).catch(() => {});
@@ -77,7 +78,7 @@ export async function resetPassword(userId: string, nueva: string) {
 
 // ── Editar perfil de un usuario ───────────────────────────────────
 export async function editarUsuario(userId: string, campos: {
-  nombre?: string; apellido?: string; code?: string; rol?: Rol; cargo?: string; login?: string;
+  nombre?: string; apellido?: string; code?: string; rol?: Rol; cargo?: string; login?: string; mesa?: string;
 }) {
   await exigirAdmin();
   const admin = createAdminClient();

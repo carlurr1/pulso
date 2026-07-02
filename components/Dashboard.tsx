@@ -75,7 +75,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
     const [h, p] = await Promise.all([data.getMiHorarioHoy(perfil.id), data.getPausaActiva(perfil.id)]);
     setTurno(h); setPausa(p);
   };
-  useEffect(() => { reload(); reloadTurno(); data.getEquipo().then(setEquipo).catch(() => {}); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { reload(); reloadTurno(); data.getEquipo(perfil.mesa).then(setEquipo).catch(() => {}); /* eslint-disable-next-line */ }, []);
 
   // La bandeja se refresca sola cuando me reparten o me pasan un caso.
   useEffect(() => data.suscribirAsignaciones(perfil.id, "bandeja", () => { reload(); }), [perfil.id]);
@@ -441,7 +441,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   const [bandeja, setBandeja] = useState<any[]>([]);
   const [bulk, setBulk] = useState("");
 
-  useEffect(() => { data.getEquipo().then((e) => { const ag = e.filter((u) => u.rol === "agente"); setEquipo(ag); setSel(ag[0]?.id ?? ""); }); }, []);
+  // El senior solo reparte dentro de su mesa (RLS lo exige también en la base).
+  useEffect(() => { data.getEquipo(perfil.mesa).then((e) => { const ag = e.filter((u) => u.rol === "agente"); setEquipo(ag); setSel(ag[0]?.id ?? ""); }); }, [perfil.mesa]);
   useEffect(() => { if (sel) data.getMiBandeja(sel).then(setBandeja); }, [sel]);
 
   const target = equipo.find((u) => u.id === sel);
@@ -553,10 +554,27 @@ function exportarExcel(nombre: string, hojas: { nombre: string; filas: any[] }[]
   XLSX.writeFile(wb, `${nombre}.xlsx`);
 }
 
+/* ── Selector de mesa (Todas / Mayoristas / Gold / Premium…) ── */
+const mesaLabel = (m: string) => m.charAt(0) + m.slice(1).toLowerCase();
+function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) => void }) {
+  const [mesas, setMesas] = useState<any[]>([]);
+  useEffect(() => { data.getMesas().then(setMesas).catch(() => {}); }, []);
+  if (mesas.length < 2) return null;   // con una sola mesa no hay nada que filtrar
+  return (
+    <div className="rolepick">
+      <button className={"roleopt" + (mesa === "" ? " on" : "")} onClick={() => setMesa("")}>Todas</button>
+      {mesas.map((m: any) => (
+        <button key={m.nombre} className={"roleopt" + (mesa === m.nombre ? " on" : "")} onClick={() => setMesa(m.nombre)}>{mesaLabel(m.nombre)}</button>
+      ))}
+    </div>
+  );
+}
+
 /* ════════════════ VISTA COORDINADOR / TABLERO 360 ════════════════ */
 function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   const [desde, setDesde] = useState(isoHace(6));
   const [hasta, setHasta] = useState(todayISO());
+  const [mesa, setMesa] = useState("");
   const [kpis, setKpis] = useState<any>(null);
   const [ranking, setRanking] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
@@ -577,17 +595,18 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       setLoading(true);
       const p = persona || null;
       try {
+        const m = mesa || null;
         const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
-          data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
-          data.gPorTipo(desde, hasta, p), data.gTendenciaKpi(desde, hasta, p), data.gPorCliente(desde, hasta, p),
-          data.gTopCasos(desde, hasta, p), data.getGestionesDia(),
+          data.gKpis(desde, hasta, p, m), data.gRanking(desde, hasta, m), data.gPorRol(desde, hasta, m),
+          data.gPorTipo(desde, hasta, p, m), data.gTendenciaKpi(desde, hasta, p, m), data.gPorCliente(desde, hasta, p, m),
+          data.gTopCasos(desde, hasta, p, m), data.getGestionesDia(),
         ]);
         if (!vivo) return;
         setKpis(k); setRanking(rk); setRoles(r); setTipos(t); setTend(te); setClientes(cl); setTopCasos(tc); setGestDia(gd);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta, persona]);
+  }, [desde, hasta, persona, mesa]);
 
   const porTipo = tipos.map((t) => ({ nombre: t.nombre.length > 22 ? t.nombre.slice(0, 20) + "…" : t.nombre, n: t.total, color: CATS[t.categoria as Categoria].color })).slice(0, 8);
   const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), efectividad: d.efectividad, productividad: d.productividad, gestiones: d.gestiones }));
@@ -618,6 +637,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       <div className="row-between end">
         <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Tablero de operación</div></div>
         <div className="toolbar no-print">
+          <MesaSelector mesa={mesa} setMesa={setMesa} />
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
             {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
@@ -849,6 +869,7 @@ function BandejaEquipoView() {
   const [hasta, setHasta] = useState(todayISO());
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
+  const [mesa, setMesa] = useState("");
   const [filas, setFilas] = useState<any[]>([]);
   const [filtro, setFiltro] = useState<"todos" | "faltan" | "pendiente" | "progreso" | "gestionado">("faltan");
   const [q, setQ] = useState("");
@@ -861,12 +882,12 @@ function BandejaEquipoView() {
     (async () => {
       setLoading(true);
       try {
-        const d = await data.getBandejaEquipo(desde, hasta, persona || null);
+        const d = await data.getBandejaEquipo(desde, hasta, persona || null, mesa || null);
         if (vivo) setFilas(d);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta, persona]);
+  }, [desde, hasta, persona, mesa]);
 
   const total = filas.length;
   const faltan = filas.filter((f) => f.estado !== "gestionado").length;
@@ -893,6 +914,7 @@ function BandejaEquipoView() {
       <div className="row-between end">
         <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Bandeja del equipo</div></div>
         <div className="toolbar">
+          <MesaSelector mesa={mesa} setMesa={setMesa} />
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
             {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
@@ -958,6 +980,7 @@ function EstadisticasView() {
   const [hasta, setHasta] = useState(todayISO());
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
+  const [mesa, setMesa] = useState("");
   const [stats, setStats] = useState<any>(null);
   const [dias, setDias] = useState<any[]>([]);
   const [traspasos, setTraspasos] = useState<any[]>([]);
@@ -972,9 +995,9 @@ function EstadisticasView() {
       setLoading(true);
       try {
         const [s, d, t] = await Promise.all([
-          data.eStats(desde, hasta, persona || null),
-          data.eStatsDia(desde, hasta, persona || null),
-          data.eTraspasos(desde, hasta),
+          data.eStats(desde, hasta, persona || null, mesa || null),
+          data.eStatsDia(desde, hasta, persona || null, mesa || null),
+          data.eTraspasos(desde, hasta, mesa || null),
         ]);
         if (!vivo) return;
         setStats(s); setDias(d); setTraspasos(t); setErr("");
@@ -983,7 +1006,7 @@ function EstadisticasView() {
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta, persona]);
+  }, [desde, hasta, persona, mesa]);
 
   // Promedios por persona-día trabajado (día con sesión o gestiones).
   const pd = Math.max(1, stats?.persona_dias ?? 0);
@@ -1013,6 +1036,7 @@ function EstadisticasView() {
       <div className="row-between end">
         <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Estadísticas</div></div>
         <div className="toolbar">
+          <MesaSelector mesa={mesa} setMesa={setMesa} />
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
             {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
@@ -1170,13 +1194,14 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
       <div className="row-between end">
         <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Configuración</div></div>
         <div className="rolepick">
-          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["horarios", "Horarios"]].map(([k, l]) =>
+          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["mesas", "Mesas"], ["horarios", "Horarios"]].map(([k, l]) =>
             <button key={k} className={"roleopt" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
       <div className="mt8">
         {tab === "gestiones" && <GestionConfig catalogo={catalogo} reload={reloadCatalogo} fire={fire} />}
         {tab === "usuarios" && <UserConfig fire={fire} />}
+        {tab === "mesas" && <MesaConfig fire={fire} />}
         {tab === "horarios" && <><HorarioConfig /><HorarioSemana /></>}
       </div>
     </>
@@ -1244,14 +1269,50 @@ function estadoUsuario(u: Usuario): { txt: string; cls: string } {
   return { txt: "Activa", cls: "done" };
 }
 
+const CARGOS = ["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior", "Coordinador"];
+
+function MesaConfig({ fire }: { fire: (m: string) => void }) {
+  const [mesas, setMesas] = useState<any[]>([]);
+  const [nueva, setNueva] = useState("");
+  const [busy, setBusy] = useState(false);
+  const cargar = () => data.getMesas().then(setMesas).catch(() => {});
+  useEffect(() => { cargar(); }, []);
+  const agregar = async () => {
+    if (!nueva.trim()) return;
+    setBusy(true);
+    try { await data.agregarMesa(nueva); setNueva(""); fire("Mesa agregada"); cargar(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo agregar")); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="card">
+      <div className="h2 mb4">Mesas del Help Desk</div>
+      <div className="sub small mb12">Los contenedores de la operación (Mayoristas, Gold, Premium…). Cada usuario pertenece a una mesa; los seniors y la barra de compañeros quedan encerrados en la suya.</div>
+      <div className="col9 mb12">
+        {mesas.map((m: any) => (
+          <div key={m.nombre} className="casecard">
+            <div className="caseno">{mesaLabel(m.nombre)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="gap9">
+        <input className="inp upper" value={nueva} placeholder="NUEVA MESA (EJ. CORPORATIVO)" onChange={(e) => setNueva(e.target.value.toUpperCase())} />
+        <button className="btn primary" disabled={busy || !nueva.trim()} onClick={agregar}><Plus size={16} />Agregar</button>
+      </div>
+      <div className="sub tiny mt8">Las mesas no se eliminan desde aquí para no dejar usuarios huérfanos; si necesitas retirar una, reasigna primero a su gente.</div>
+    </div>
+  );
+}
+
 function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [users, setUsers] = useState<Usuario[]>([]);
   const [modal, setModal] = useState(false);
   const [edit, setEdit] = useState<any>(null);   // usuario en edición
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" });
+  const [mesas, setMesas] = useState<any[]>([]);
+  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" });
   const reload = () => data.getUsuarios().then(setUsers);
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); data.getMesas().then(setMesas).catch(() => {}); }, []);
 
   const add = async () => {
     if (!f.nombre.trim() || !f.login.trim()) { fire("Escribe al menos nombre y usuario."); return; }
@@ -1259,16 +1320,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
     try {
       const r = await crearUsuario(f);
       if (!r.ok) { fire(r.error ?? "No se pudo crear el usuario."); return; }
-      setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*" }); fire("Usuario creado"); reload();
+      setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" }); fire("Usuario creado"); reload();
     } catch (e: any) { fire("Error inesperado: " + (e?.message ?? "")); }
     finally { setBusy(false); }
   };
 
-  const abrirEdit = (u: Usuario) => setEdit({ id: u.id, nombre: u.nombre, apellido: u.apellido ?? "", code: u.code ?? "", cargo: u.cargo ?? "Agente", rol: u.rol, bloqueado: !!u.bloqueado, nuevaPass: "" });
+  const abrirEdit = (u: Usuario) => setEdit({ id: u.id, nombre: u.nombre, apellido: u.apellido ?? "", code: u.code ?? "", cargo: u.cargo ?? "Agente", rol: u.rol, mesa: u.mesa ?? "MAYORISTAS", bloqueado: !!u.bloqueado, nuevaPass: "" });
   const guardarEdit = async () => {
     setBusy(true);
     try {
-      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol });
+      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol, mesa: edit.mesa });
       setEdit(null); fire("Usuario actualizado"); reload();
     } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
     finally { setBusy(false); }
@@ -1296,7 +1357,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
         </div>
         <div className="tblscroll">
           <table className="tbl">
-            <thead><tr><th>Nombre</th><th>Usuario</th><th>Código</th><th>Rol</th><th>Cargo</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Usuario</th><th>Código</th><th>Rol</th><th>Cargo</th><th>Mesa</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {users.map((u) => {
                 const e = estadoUsuario(u);
@@ -1307,6 +1368,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                     <td className="mono s12">{u.code || <span className="faint">—</span>}</td>
                     <td><span className="chip neutral">{u.rol}</span></td>
                     <td className="s12">{u.cargo}</td>
+                    <td><span className="chip bajo s11">{u.mesa ? mesaLabel(u.mesa) : "—"}</span></td>
                     <td><span className={"chip " + e.cls}>{e.txt}</span></td>
                     <td><button className="btn ghost sm" onClick={() => abrirEdit(u)}>Editar</button></td>
                   </tr>
@@ -1340,11 +1402,14 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               <div className="grid two mt12">
                 <div><label className="lbl">Cargo (puesto real)</label>
                   <select className="inp" value={f.cargo} onChange={(e) => setF({ ...f, cargo: e.target.value })}>
-                    {["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior"].map((c) => <option key={c} value={c}>{c}</option>)}
+                    {CARGOS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select></div>
-                <div></div>
+                <div><label className="lbl">Mesa / Segmento</label>
+                  <select className="inp" value={f.mesa} onChange={(e) => setF({ ...f, mesa: e.target.value })}>
+                    {mesas.map((m: any) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
+                  </select></div>
               </div>
-              <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios.</div>
+              <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios. La <b>mesa</b> define su contenedor: bandeja, compañeros y métricas.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
           </div>
@@ -1367,10 +1432,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                     {["agente", "senior", "coordinador", "superadmin"].map((r) => <option key={r} value={r}>{r}</option>)}
                   </select></div>
               </div>
-              <div className="mt12"><label className="lbl">Cargo (puesto real)</label>
-                <select className="inp" value={edit.cargo} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })}>
-                  {["Agente", "Junior", "Junior ENEL", "Junior Back", "Junior Líder", "Analista", "Analista Proyectos", "Senior"].map((c) => <option key={c} value={c}>{c}</option>)}
-                </select></div>
+              <div className="grid two mt12">
+                <div><label className="lbl">Cargo (puesto real)</label>
+                  <select className="inp" value={edit.cargo} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })}>
+                    {CARGOS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select></div>
+                <div><label className="lbl">Mesa / Segmento</label>
+                  <select className="inp" value={edit.mesa} onChange={(e) => setEdit({ ...edit, mesa: e.target.value })}>
+                    {mesas.map((m: any) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
+                  </select></div>
+              </div>
 
               <div className="divider" />
               <label className="lbl">Seguridad</label>
@@ -1572,17 +1643,19 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
   const [lista, setLista] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
   const [reqResp, setReqResp] = useState(false);
+  const [mesaDest, setMesaDest] = useState("");
+  const [mesas, setMesas] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [abierto, setAbierto] = useState<string | null>(null);
   const cargar = () => data.getAnunciosConEstado().then(setLista).catch(() => {});
-  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
+  useEffect(() => { cargar(); data.getMesas().then(setMesas).catch(() => {}); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
 
   const publicar = async () => {
     if (!msg.trim()) return;
     setBusy(true);
     try {
-      await data.crearAnuncio(msg.trim(), reqResp, `${perfil.nombre} ${perfil.apellido ?? ""}`.trim());
-      setMsg(""); setReqResp(false); cargar();
+      await data.crearAnuncio(msg.trim(), reqResp, `${perfil.nombre} ${perfil.apellido ?? ""}`.trim(), mesaDest || null);
+      setMsg(""); setReqResp(false); setMesaDest(""); cargar();
     } catch { /* RLS: solo privilegiados */ }
     finally { setBusy(false); }
   };
@@ -1600,7 +1673,15 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
           <input type="checkbox" checked={reqResp} onChange={(e) => setReqResp(e.target.checked)} />
           Exigir respuesta escrita (no basta con "Enterado")
         </label>
-        <button className="btn primary sm" disabled={busy || !msg.trim()} onClick={publicar}>Publicar anuncio</button>
+        <div className="gap9">
+          {mesas.length > 1 && (
+            <select className="inp dateinp" value={mesaDest} onChange={(e) => setMesaDest(e.target.value)}>
+              <option value="">Toda la operación</option>
+              {mesas.map((m: any) => <option key={m.nombre} value={m.nombre}>Solo {mesaLabel(m.nombre)}</option>)}
+            </select>
+          )}
+          <button className="btn primary sm" disabled={busy || !msg.trim()} onClick={publicar}>Publicar anuncio</button>
+        </div>
       </div>
 
       {lista.length > 0 && (
@@ -1612,6 +1693,7 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
                 <div className="caseMeta mt3">
                   {a.activo ? <span className="chip done">Activo</span> : <span className="chip sin">Retirado</span>}
                   {a.requiere_respuesta && <span className="chip bajo">Con respuesta</span>}
+                  <span className="chip neutral s11">{a.mesa ? mesaLabel(a.mesa) : "Toda la operación"}</span>
                   <span className="faint">· {hh(a.created_at)} · <b>{a.confirmaciones.length}/{a.total_equipo}</b> confirmaron</span>
                 </div>
                 {abierto === a.id && (
@@ -1648,8 +1730,9 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   const [msg, setMsg] = useState("Te necesito un momento, por favor.");
   const [enviando, setEnviando] = useState(false);
   const [okMsg, setOkMsg] = useState("");
-  const cargar = () => data.getPresencia().then((d) => { setFilas(d); setLoading(false); });
-  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, []);
+  const [mesa, setMesa] = useState("");
+  const cargar = () => data.getPresencia(mesa || null).then((d) => { setFilas(d); setLoading(false); });
+  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [mesa]);
   const enLinea = filas.filter((f) => f.en_linea).length;
 
   const enviar = async () => {
@@ -1669,7 +1752,10 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
     <div className="card nopad">
       <div className="tblhead">
         <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y sus pausas. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
-        <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
+        <div className="gap9">
+          <MesaSelector mesa={mesa} setMesa={setMesa} />
+          <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
+        </div>
       </div>
       {okMsg && <div className="okbox" style={{ margin: "0 18px 12px" }}>{okMsg}</div>}
       <div className="tblscroll">
@@ -1950,10 +2036,11 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
     let off: (() => void) | undefined;
     (async () => {
-      const pend = await data.getAnunciosPendientes(perfil.id).catch(() => []);
+      const pend = await data.getAnunciosPendientes(perfil.id, perfil.mesa).catch(() => []);
       if (pend.length) setAnuncios(pend);
       off = data.suscribirAnuncios((a) => {
         if (!a?.activo) return;
+        if (a.mesa && perfil.mesa && a.mesa !== perfil.mesa) return;   // anuncio de otra mesa
         setAnuncios((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
         beep();
       });
