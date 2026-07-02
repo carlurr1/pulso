@@ -67,8 +67,8 @@ export async function getBandejaEquipo(desde: string, hasta: string, personaId?:
   const { data } = await q;
   const filas = (data ?? []) as any[];
   if (!filas.length) return [];
-  // Persona de cada asignación.
-  const ids = [...new Set(filas.map((a) => a.user_id))];
+  // Persona de cada asignación + quién la asignó (origen del caso).
+  const ids = [...new Set(filas.flatMap((a) => [a.user_id, a.asignado_por].filter(Boolean)))];
   const { data: us } = await sb.from("usuarios").select("id, nombre, apellido, cargo").in("id", ids);
   const umap = new Map((us ?? []).map((u: any) => [u.id, u]));
   // Cliente por caso (Salesforce), ignorando reuniones/internas (REU-).
@@ -78,7 +78,11 @@ export async function getBandejaEquipo(desde: string, hasta: string, personaId?:
     const { data: casos } = await sb.from("casos_sf").select("numero_caso, cliente").in("numero_caso", numeros);
     cmap = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
   }
-  filas.forEach((a) => { a.usuario = umap.get(a.user_id) ?? null; a.cliente = cmap.get(a.numero_caso) ?? null; });
+  filas.forEach((a) => {
+    a.usuario = umap.get(a.user_id) ?? null;
+    a.asignador = a.asignado_por ? (umap.get(a.asignado_por) ?? null) : null;
+    a.cliente = cmap.get(a.numero_caso) ?? null;
+  });
   return filas;
 }
 
@@ -273,6 +277,23 @@ export async function gPorTipo(desde: string, hasta: string, user?: string | nul
 export async function gTendenciaKpi(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
   const { data } = await sb.rpc("g_tendencia_kpi", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  return data ?? [];
+}
+
+// ── Estadísticas de supervisión (tiempo app/PC, traspasos) ────────
+export async function eStats(desde: string, hasta: string, user?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("e_stats", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  return (data as any[])?.[0] ?? null;
+}
+export async function eStatsDia(desde: string, hasta: string, user?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("e_stats_dia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  return data ?? [];
+}
+export async function eTraspasos(desde: string, hasta: string) {
+  const sb = createClient();
+  const { data } = await sb.rpc("e_traspasos", { p_desde: desde, p_hasta: hasta });
   return data ?? [];
 }
 export async function gPorCliente(desde: string, hasta: string, user?: string | null) {

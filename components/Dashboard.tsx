@@ -865,10 +865,10 @@ function BandejaEquipoView() {
         </div>
         <div className="tblscroll">
           <table className="tbl">
-            <thead><tr><th>Caso</th><th>Cliente</th><th>Persona</th><th>Cargo</th><th>Fecha</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Caso</th><th>Cliente</th><th>Persona</th><th>Cargo</th><th>Origen</th><th>Fecha</th><th>Estado</th></tr></thead>
             <tbody>
-              {loading && <tr><td colSpan={6}><div className="empty">Cargando…</div></td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={6}><div className="empty">Sin casos para este filtro.</div></td></tr>}
+              {loading && <tr><td colSpan={7}><div className="empty">Cargando…</div></td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={7}><div className="empty">Sin casos para este filtro.</div></td></tr>}
               {!loading && rows.map((f) => {
                 const em = ESTADO_META[f.estado] ?? { label: f.estado, chip: "sin" };
                 return (
@@ -877,6 +877,12 @@ function BandejaEquipoView() {
                     <td className="s12">{f.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (f.cliente ?? <span className="faint">—</span>)}</td>
                     <td className="bold nameCell"><span className="uava xsmall">{(f.usuario?.nombre?.[0] ?? "") + (f.usuario?.apellido?.[0] ?? "")}</span>{f.usuario ? `${f.usuario.nombre} ${f.usuario.apellido ?? ""}` : "—"}</td>
                     <td className="s12">{f.usuario?.cargo ?? "—"}</td>
+                    <td className="s12">
+                      {!f.asignado_por ? <span className="faint">—</span>
+                        : f.asignado_por === f.user_id ? <span className="chip neutral s11">Propio</span>
+                          : f.asignador ? <span title={f.asignador.cargo ?? ""}>{firstLast(f.asignador.nombre, f.asignador.apellido)}</span>
+                            : <span className="faint">—</span>}
+                    </td>
                     <td className="mono s12">{fmtFecha(f.fecha)}</td>
                     <td><span className={"chip " + em.chip}>{em.label}</span></td>
                   </tr>
@@ -886,6 +892,149 @@ function BandejaEquipoView() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ════════════════ ESTADÍSTICAS (supervisión de tiempos y flujo) ════════════════ */
+function EstadisticasView() {
+  const [desde, setDesde] = useState(isoHace(6));
+  const [hasta, setHasta] = useState(todayISO());
+  const [equipo, setEquipo] = useState<any[]>([]);
+  const [persona, setPersona] = useState<string>("");
+  const [stats, setStats] = useState<any>(null);
+  const [dias, setDias] = useState<any[]>([]);
+  const [traspasos, setTraspasos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { data.getUsuarios().then((l: any[]) => setEquipo(l.filter((u) => u.rol === "agente" || u.rol === "senior"))); }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [s, d, t] = await Promise.all([
+          data.eStats(desde, hasta, persona || null),
+          data.eStatsDia(desde, hasta, persona || null),
+          data.eTraspasos(desde, hasta),
+        ]);
+        if (!vivo) return;
+        setStats(s); setDias(d); setTraspasos(t);
+      } finally { if (vivo) setLoading(false); }
+    })();
+    return () => { vivo = false; };
+  }, [desde, hasta, persona]);
+
+  // Promedios por persona-día trabajado (día con sesión o gestiones).
+  const pd = Math.max(1, stats?.persona_dias ?? 0);
+  const promMin = (total: number) => fmtMin(Math.round((total ?? 0) / pd));
+  const aprovechamiento = stats?.minutos_app > 0 ? Math.round((100 * (stats?.minutos_pc ?? 0)) / stats.minutos_app) : null;
+
+  // Serie diaria en horas promedio por persona conectada ese día.
+  const linea = dias.map((d) => {
+    const pp = d.personas || 0;
+    return {
+      dia: fmtFecha(d.dia),
+      app: pp ? +(d.minutos_app / pp / 60).toFixed(1) : null,
+      pc: pp ? +(d.minutos_pc / pp / 60).toFixed(1) : null,
+      registrado: pp ? +(d.minutos_gestion / pp / 60).toFixed(1) : null,
+      gestiones: pp ? +(d.gestiones / pp).toFixed(1) : null,
+    };
+  });
+
+  const exportar = () => exportarExcel(`Pulso_estadisticas_${desde}_a_${hasta}`, [
+    { nombre: "Resumen", filas: stats ? [{ Desde: desde, Hasta: hasta, "Prom. app/día": promMin(stats.minutos_app), "Prom. PC activo/día": promMin(stats.minutos_pc), "Aprovechamiento %": aprovechamiento ?? "", "Prom. gestiones/día": +((stats.gestiones ?? 0) / pd).toFixed(1), "Prom. registrado/día": promMin(stats.minutos_gestion), "Prom. pausas/día": promMin(stats.minutos_pausa), "Persona-días": stats.persona_dias, "Casos propios": stats.casos_propios, "Casos recibidos": stats.casos_recibidos }] : [] },
+    { nombre: "Por día", filas: dias.map((d) => ({ "Día": d.dia, Personas: d.personas, "App (h)": +(d.minutos_app / 60).toFixed(1), "PC activo (h)": +(d.minutos_pc / 60).toFixed(1), Gestiones: d.gestiones, "Registrado (h)": +(d.minutos_gestion / 60).toFixed(1) })) },
+    { nombre: "Flujo de casos", filas: traspasos.map((t) => ({ De: firstLast(t.de_nombre, t.de_apellido), Para: firstLast(t.para_nombre, t.para_apellido), Casos: t.casos })) },
+  ]);
+
+  return (
+    <div>
+      <div className="row-between end">
+        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Estadísticas</div></div>
+        <div className="toolbar">
+          <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
+            <option value="">Todo el equipo</option>
+            {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
+          </select>
+          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+          <button className="btn ghost sm" onClick={exportar}><Download size={14} />Excel</button>
+        </div>
+      </div>
+      <div className="sub small mt3">Promedios por persona por día trabajado. Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}{persona ? " · " + (equipo.find((u) => u.id === persona)?.nombre ?? "") : ""}</div>
+
+      {loading ? <div className="card mt20"><div className="empty">Cargando estadísticas…</div></div> : !stats ? <div className="card mt20"><div className="empty">Sin datos en el periodo. ¿Ya ejecutaste 16_estadisticas.sql en Supabase?</div></div> : (
+        <>
+          <div className="grid six mt16">
+            <Stat icon={Clock} value={promMin(stats.minutos_app)} label="Tiempo en la app · prom./día" color="#0098D6" />
+            <Stat icon={Activity} value={promMin(stats.minutos_pc)} label="Gestión en el PC · prom./día" color="#14B8C4" />
+            <Stat icon={TrendingUp} value={aprovechamiento != null ? aprovechamiento + "%" : "—"} label="PC activo vs tiempo en app" color="#6D5AE6" pct={aprovechamiento ?? 0} />
+            <Stat icon={ListChecks} value={+((stats.gestiones ?? 0) / pd).toFixed(1)} label="Gestiones · prom./día" color="#26B07A" />
+            <Stat icon={FileText} value={promMin(stats.minutos_gestion)} label="Tiempo registrado · prom./día" color="#D858A0" />
+            <Stat icon={CircleDot} value={promMin(stats.minutos_pausa)} label="Pausas · prom./día" color="#F2A33C" />
+          </div>
+
+          <div className="card mt15">
+            <div className="h2 mb4">Tiempos por día</div>
+            <div className="sub small mb10">Horas promedio por persona conectada: en la app, activa en el PC y registrada en gestiones. Las tres deberían moverse juntas — una brecha grande entre app y PC activo, o entre PC activo y registrado, es señal para revisar.</div>
+            <div className="legend">
+              <span className="legdot"><i style={{ background: "#0098D6" }} />En la app</span>
+              <span className="legdot"><i style={{ background: "#14B8C4" }} />Activo en el PC</span>
+              <span className="legdot"><i style={{ background: "#D858A0" }} />Registrado en gestiones</span>
+            </div>
+            <ResponsiveContainer width="100%" height={230}>
+              <LineChart data={linea} margin={{ left: -18 }}>
+                <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                <YAxis unit="h" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "h" : "—")} />
+                <Line type="monotone" dataKey="app" name="En la app" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="pc" name="Activo en el PC" stroke="#14B8C4" strokeWidth={2.5} dot={{ r: 2, fill: "#14B8C4" }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="registrado" name="Registrado" stroke="#D858A0" strokeWidth={2.5} dot={{ r: 2, fill: "#D858A0" }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid two mt15">
+            <div className="card">
+              <div className="h2 mb4">Gestiones por día</div>
+              <div className="sub small mb10">Promedio de gestiones registradas por persona conectada.</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={linea} margin={{ left: -18 }}>
+                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                  <Bar dataKey="gestiones" name="Gestiones/persona" fill="#26B07A" radius={[5, 5, 0, 0]} maxBarSize={26} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="card">
+              <div className="h2 mb4">Flujo de casos: quién asigna a quién</div>
+              <div className="sub small mb10">
+                Repartos y traspasos del periodo{stats.casos_propios != null && <> · <b>{stats.casos_propios}</b> casos creados por el propio analista, <b>{stats.casos_recibidos}</b> recibidos de otra persona</>}.
+              </div>
+              {traspasos.length === 0 ? <div className="empty pad24">Sin repartos ni traspasos en el periodo.</div> :
+                <div className="tblscroll">
+                  <table className="tbl">
+                    <thead><tr><th>De</th><th></th><th>Para</th><th>Casos</th></tr></thead>
+                    <tbody>
+                      {traspasos.map((t, i) => (
+                        <tr key={i}>
+                          <td className="bold s12">{firstLast(t.de_nombre, t.de_apellido)}<div className="sub tiny">{t.de_cargo}</div></td>
+                          <td><ArrowRight size={14} className="dim" /></td>
+                          <td className="bold s12">{firstLast(t.para_nombre, t.para_apellido)}<div className="sub tiny">{t.para_cargo}</div></td>
+                          <td className="mono bold">{t.casos}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1486,6 +1635,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
+    { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
@@ -1493,6 +1643,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
+    { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
   ],
@@ -1711,11 +1862,13 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
+          {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
           {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
+          {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
           {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
