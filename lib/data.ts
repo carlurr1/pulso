@@ -484,6 +484,30 @@ export function suscribirAlertas(userId: string, onAlerta: (a: any) => void) {
   return () => { sb.removeChannel(ch); };
 }
 
+// ── Web Push: registrar la suscripción de ESTE navegador ──────────
+export async function guardarPushSub(userId: string, sub: PushSubscription) {
+  const sb = createClient();
+  const j = sub.toJSON() as any;
+  if (!j?.endpoint || !j?.keys?.p256dh || !j?.keys?.auth) return;
+  await sb.from("push_subs").upsert({
+    endpoint: j.endpoint, user_id: userId, p256dh: j.keys.p256dh, auth_key: j.keys.auth,
+  }, { onConflict: "endpoint" });
+}
+
+// ── Normas de pausas (umbrales configurables) ─────────────────────
+export async function getConfigOperacion() {
+  const sb = createClient();
+  const { data } = await sb.from("config_operacion").select("*").eq("id", 1).maybeSingle();
+  return (data as any) ?? { break_max_min: 30, almuerzo_max_min: 60 };
+}
+export async function guardarConfigOperacion(breakMax: number, almuerzoMax: number) {
+  const sb = createClient();
+  const { error } = await sb.from("config_operacion")
+    .update({ break_max_min: breakMax, almuerzo_max_min: almuerzoMax, actualizado_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) throw error;
+}
+
 // ── Notificaciones de asignaciones (en vivo) ──────────────────────
 export function suscribirAsignaciones(userId: string, canal: string, cb: (a: any) => void) {
   const sb = createClient();
