@@ -13,6 +13,7 @@ import {
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
 import { crearUsuario, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
+import { pushUsuarios, pushEquipo } from "@/app/push";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
 
@@ -185,6 +186,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
       // Traspaso: creo el caso (cuenta como mi gestión) pero queda en la bandeja de otra persona.
       if (destinoId && destinoId !== perfil.id) {
         await data.crearYTraspasar({ userId: perfil.id, destinoId, tipoId, numeroCaso, minutos: min });
+        pushUsuarios([destinoId], "Te pasaron un caso", `${perfil.nombre} te pasó el caso #${numeroCaso}`).catch(() => {});
         const dest = equipo.find((u) => u.id === destinoId);
         setModal(null);
         fire("Caso creado y pasado a " + (dest ? dest.nombre : "el analista"));
@@ -528,6 +530,7 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     if (!casos.length) return;
     try {
       await data.repartirSeguimiento({ userId: sel, seniorId: perfil.id, casos });
+      pushUsuarios([sel], "Nuevos casos en tu bandeja", `${perfil.nombre} te asignó ${casos.length} caso(s)`).catch(() => {});
       setBulk(""); fire(`${casos.length} caso(s) asignados a ${target?.nombre}`);
       data.getMiBandeja(sel).then(setBandeja);
     } catch (e: any) { fire("Error: " + e.message); }
@@ -543,6 +546,7 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     try {
       await data.poolAsignar(poolId, destinoId);
       const d = equipo.find((u) => u.id === destinoId);
+      if (destinoId !== perfil.id) pushUsuarios([destinoId], "Caso del contenedor asignado", `${perfil.nombre} te asignó un caso del contenedor`).catch(() => {});
       fire("Caso del contenedor asignado a " + (destinoId === perfil.id ? "ti" : d ? d.nombre : "el analista"));
       reloadPool();
       if (destinoId === sel) data.getMiBandeja(sel).then(setBandeja);
@@ -943,10 +947,15 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
 function ResumenView() {
   const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
+  const [mesa, setMesa] = useState("");
   const [kpis, setKpis] = useState<any>(null);
+  const [kpisPrev, setKpisPrev] = useState<any>(null);
   const [ranking, setRanking] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
+  const [tend, setTend] = useState<any[]>([]);
+  const [resolucion, setResolucion] = useState<any[]>([]);
+  const [porMesa, setPorMesa] = useState<any[]>([]);
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -958,25 +967,45 @@ function ResumenView() {
     (async () => {
       setLoading(true);
       const p = persona || null;
+      const m = mesa || null;
       try {
-        const [k, rk, cl, tp] = await Promise.all([
-          data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorCliente(desde, hasta, p), data.gPorTipo(desde, hasta, p),
+        const [pDesde, pHasta] = rangoAnterior(desde, hasta);
+        const [k, kp, rk, cl, tp, te, rs, mesas] = await Promise.all([
+          data.gKpis(desde, hasta, p, m), data.gKpis(pDesde, pHasta, p, m),
+          data.gRanking(desde, hasta, m), data.gPorCliente(desde, hasta, p, m), data.gPorTipo(desde, hasta, p, m),
+          data.gTendenciaKpi(desde, hasta, p, m), data.eResolucion(desde, hasta, m),
+          data.getMesas().catch(() => []),
         ]);
-        if (!vivo) return; setKpis(k); setRanking(rk); setClientes(cl); setTipos(tp);
+        if (!vivo) return;
+        setKpis(k); setKpisPrev(kp); setRanking(rk); setClientes(cl); setTipos(tp); setTend(te); setResolucion(rs);
+        // Comparativo entre mesas/grupos (solo con la vista global y varias mesas).
+        if (!m && !p && (mesas as any[]).length > 1) {
+          const grupos = [...new Set((mesas as any[]).map((x: any) => x.grupo || x.nombre))];
+          const kpisG = await Promise.all(grupos.map((g) => data.gKpis(desde, hasta, null, g).catch(() => null)));
+          if (!vivo) return;
+          setPorMesa(grupos.map((g, i) => ({
+            mesa: mesaLabel(g),
+            efectividad: kpisG[i]?.efectividad ?? 0,
+            productividad: kpisG[i]?.productividad ?? 0,
+            gestiones: kpisG[i]?.gestiones ?? 0,
+          })).filter((x) => x.gestiones > 0 || x.efectividad > 0));
+        } else setPorMesa([]);
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
-  }, [desde, hasta, persona]);
+  }, [desde, hasta, persona, mesa]);
 
   const top = [...ranking].filter((r) => (persona ? r.user_id === persona : r.gestiones > 0)).slice(0, 3);
   const topCliente = clientes[0];
   const topTipo = tipos[0];
+  const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), efectividad: d.efectividad, productividad: d.productividad }));
 
   return (
     <div id="reporte">
       <div className="row-between end">
         <div><div className="eyebrow">Resumen ejecutivo · Group COS para ETB</div><div className="h1">Operación Help Desk</div></div>
         <div className="toolbar no-print">
+          <MesaSelector mesa={mesa} setMesa={setMesa} />
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
             {equipo.map((u) => <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>)}
@@ -990,11 +1019,51 @@ function ResumenView() {
       {loading ? <div className="card mt20"><div className="empty">Preparando resumen…</div></div> : (
         <>
           <div className="grid four mt16">
-            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad del equipo" color="#0098D6" pct={kpis?.efectividad ?? 0} />
-            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0} />
-            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A" />
-            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4" />
+            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad del equipo" color="#0098D6" pct={kpis?.efectividad ?? 0}
+              {...calcDelta(kpis?.efectividad, kpisPrev?.efectividad, "%")} />
+            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0}
+              {...calcDelta(kpis?.productividad, kpisPrev?.productividad, "%")} />
+            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A"
+              {...calcDelta(kpis?.gestiones, kpisPrev?.gestiones)} />
+            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4"
+              {...calcDelta(kpis?.minutos != null ? kpis.minutos / 60 : null, kpisPrev?.minutos != null ? kpisPrev.minutos / 60 : null, "h")} />
           </div>
+
+          {porMesa.length > 1 && (
+            <div className="card mt15">
+              <div className="h2 mb4">Comparativo por segmento</div>
+              <div className="sub small mb10">Efectividad y productividad de cada mesa o grupo en el periodo.</div>
+              <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={porMesa} margin={{ left: -16 }}>
+                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                  <XAxis dataKey="mesa" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                  <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={30} />
+                  <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[5, 5, 0, 0]} maxBarSize={30} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {tline.length > 1 && (
+            <div className="card mt15">
+              <div className="h2 mb4">Evolución del periodo</div>
+              <div className="sub small mb10">Efectividad y productividad diarias.</div>
+              <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={tline} margin={{ left: -18 }}>
+                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "%" : "—")} />
+                  <Line type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           <div className="grid three mt15">
             <div className="card">
@@ -1016,6 +1085,27 @@ function ResumenView() {
               {topTipo ? <><div className="bignum">{topTipo.nombre}</div><div className="sub">{topTipo.total} veces · {horas(topTipo.minutos)}</div></> : <div className="sub">Sin datos.</div>}
             </div>
           </div>
+
+          {resolucion.length > 0 && (
+            <div className="card mt15">
+              <div className="eyebrow mb12">Tiempo de resolución por cliente</div>
+              <div className="tblscroll">
+                <table className="tbl">
+                  <thead><tr><th>Cliente</th><th>Casos cerrados</th><th>Promedio (días)</th><th>Máximo (días)</th></tr></thead>
+                  <tbody>
+                    {resolucion.slice(0, 6).map((r: any, i: number) => (
+                      <tr key={i}>
+                        <td className="bold s12">{r.cliente}</td>
+                        <td className="mono">{r.casos}</td>
+                        <td className="mono bold">{r.prom_dias}</td>
+                        <td className="mono">{r.max_dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="card mt15">
             <div className="eyebrow mb12">Cumplimiento de la bandeja</div>
@@ -1190,6 +1280,10 @@ function EstadisticasView() {
   const pdPrev = Math.max(1, statsPrev?.persona_dias ?? 0);
   const promPrev = (campo: string) => (statsPrev?.[campo] != null && statsPrev.persona_dias > 0 ? statsPrev[campo] / pdPrev : null);
 
+  // Umbrales de pausas (configurables en Configuración → Mesas).
+  const [cfg, setCfg] = useState<any>({ break_max_min: 30, almuerzo_max_min: 60 });
+  useEffect(() => { data.getConfigOperacion().then(setCfg).catch(() => {}); }, []);
+
   // Promedios por persona-día trabajado (día con sesión o gestiones).
   const pd = Math.max(1, stats?.persona_dias ?? 0);
   const promMin = (total: number) => fmtMin(Math.round((total ?? 0) / pd));
@@ -1264,15 +1358,15 @@ function EstadisticasView() {
               <span className="legdot"><i style={{ background: "#D858A0" }} />Registrado en gestiones</span>
             </div>
             <ResponsiveContainer width="100%" height={230}>
-              <LineChart data={linea} margin={{ left: -18 }}>
+              <BarChart data={linea} margin={{ left: -18 }}>
                 <CartesianGrid vertical={false} stroke="#EEF1F6" />
                 <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
                 <YAxis unit="h" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "h" : "—")} />
-                <Line type="monotone" dataKey="app" name="En la app" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
-                <Line type="monotone" dataKey="pc" name="Activo en el PC" stroke="#14B8C4" strokeWidth={2.5} dot={{ r: 2, fill: "#14B8C4" }} activeDot={{ r: 5 }} />
-                <Line type="monotone" dataKey="registrado" name="Registrado" stroke="#D858A0" strokeWidth={2.5} dot={{ r: 2, fill: "#D858A0" }} activeDot={{ r: 5 }} />
-              </LineChart>
+                <Bar dataKey="app" name="En la app" fill="#0098D6" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="pc" name="Activo en el PC" fill="#14B8C4" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="registrado" name="Registrado" fill="#D858A0" radius={[4, 4, 0, 0]} maxBarSize={26} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
 
@@ -1331,11 +1425,11 @@ function EstadisticasView() {
             </div>
             <div className="card">
               <div className="h2 mb4">Pausas fuera de norma</div>
-              <div className="sub small mb10">Breaks de más de 15 min, almuerzos de más de 60, y frecuencia de baño en el periodo.</div>
+              <div className="sub small mb10">Breaks de más de {cfg.break_max_min} min, almuerzos de más de {cfg.almuerzo_max_min}, y frecuencia de baño. Los umbrales se editan en Configuración → Mesas.</div>
               {pausasNorma.length === 0 ? <div className="empty pad24">Sin pausas registradas en el periodo.</div> :
                 <div className="tblscroll">
                   <table className="tbl">
-                    <thead><tr><th>Persona</th><th>Pausas</th><th>Total</th><th>Breaks &gt;15m</th><th>Almuerzos &gt;60m</th><th>Baño</th></tr></thead>
+                    <thead><tr><th>Persona</th><th>Pausas</th><th>Total</th><th>Breaks &gt;{cfg.break_max_min}m</th><th>Almuerzos &gt;{cfg.almuerzo_max_min}m</th><th>Baño</th></tr></thead>
                     <tbody>
                       {pausasNorma.map((p: any) => (
                         <tr key={p.user_id}>
@@ -1520,6 +1614,16 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
     try { await data.guardarMeta(mesa, n); fire(`Meta de ${mesaLabel(mesa)}: ${n} gestiones/día`); }
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
   };
+  // Normas de pausas (umbral de break y almuerzo).
+  const [cfg, setCfg] = useState<any>(null);
+  useEffect(() => { data.getConfigOperacion().then(setCfg).catch(() => {}); }, []);
+  const guardarNorma = async (campo: "break_max_min" | "almuerzo_max_min", valor: string) => {
+    const n = Math.max(1, parseInt(valor || "0", 10) || 0);
+    const nuevo = { ...cfg, [campo]: n };
+    setCfg(nuevo);
+    try { await data.guardarConfigOperacion(nuevo.break_max_min, nuevo.almuerzo_max_min); fire("Norma de pausas actualizada"); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
+  };
   return (
     <div className="card">
       <div className="h2 mb4">Mesas del Help Desk</div>
@@ -1547,6 +1651,24 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
         <button className="btn primary" disabled={busy || !nueva.trim()} onClick={agregar}><Plus size={16} />Agregar</button>
       </div>
       <div className="sub tiny mt8">El <b>grupo</b> une subsegmentos (ej. Premium 1..4 bajo PREMIUM): habilita el filtro "todo el grupo", el contenedor compartido y la auto-asignación de fin de semana. Si lo dejas vacío, la mesa es su propio grupo. Las mesas no se eliminan desde aquí para no dejar usuarios huérfanos.</div>
+
+      {cfg && (
+        <>
+          <div className="divider" />
+          <div className="h2 mb4">Normas de pausas</div>
+          <div className="sub small mb10">A partir de estos minutos, la pausa cuenta como "fuera de norma" en Estadísticas.</div>
+          <div className="gap9" style={{ alignItems: "center", flexWrap: "wrap" }}>
+            <label className="sub small">Break máximo (min)</label>
+            <input className="inp mono" style={{ width: 80 }} type="number" min={1}
+              defaultValue={cfg.break_max_min} key={"b" + cfg.break_max_min}
+              onBlur={(e) => { if (+e.target.value !== cfg.break_max_min) guardarNorma("break_max_min", e.target.value); }} />
+            <label className="sub small" style={{ marginLeft: 14 }}>Almuerzo máximo (min)</label>
+            <input className="inp mono" style={{ width: 80 }} type="number" min={1}
+              defaultValue={cfg.almuerzo_max_min} key={"a" + cfg.almuerzo_max_min}
+              onBlur={(e) => { if (+e.target.value !== cfg.almuerzo_max_min) guardarNorma("almuerzo_max_min", e.target.value); }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1902,6 +2024,7 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
     setBusy(true);
     try {
       await data.crearAnuncio(msg.trim(), reqResp, `${perfil.nombre} ${perfil.apellido ?? ""}`.trim(), mesaDest || null);
+      pushEquipo(mesaDest || null, `Anuncio de ${perfil.nombre}`, msg.trim()).catch(() => {});
       setMsg(""); setReqResp(false); setMesaDest(""); cargar();
     } catch { /* RLS: solo privilegiados */ }
     finally { setBusy(false); }
@@ -1992,6 +2115,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
     setEnviando(true);
     try {
       await data.enviarAlerta(alerta.user, msg.trim(), `${perfil.nombre} ${perfil.apellido ?? ""}`.trim());
+      pushUsuarios([alerta.user], `Alerta de ${perfil.nombre}`, msg.trim()).catch(() => {});
       setOkMsg(`Alerta enviada a ${alerta.nombre}.`); setAlerta(null);
       setTimeout(() => setOkMsg(""), 3000);
     } catch (e: any) { setOkMsg("Error: " + (e.message ?? "")); }
@@ -2273,6 +2397,31 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       cerrar();
     };
   }, []);
+
+  // Web Push: suscribe este navegador para recibir notificaciones aunque
+  // la pestaña esté cerrada. Pide el permiso en el primer clic (gesto).
+  useEffect(() => {
+    const clave = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!clave || typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const b64ToU8 = (b64: string) => {
+      const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+      const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+      return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+    };
+    const suscribir = async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription()
+          ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(clave) });
+        await data.guardarPushSub(perfil.id, sub);
+      } catch { /* sin push: la app sigue igual */ }
+    };
+    if (Notification.permission === "granted") { suscribir(); return; }
+    if (Notification.permission === "denied") return;
+    const pedir = async () => { try { if ((await Notification.requestPermission()) === "granted") suscribir(); } catch {} };
+    window.addEventListener("click", pedir, { once: true });
+    return () => window.removeEventListener("click", pedir);
+  }, [perfil.id]);
 
   // Alertas en tiempo real (las que me envía el admin/coordinador).
   const beep = () => {
