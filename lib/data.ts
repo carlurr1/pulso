@@ -279,9 +279,10 @@ export async function gPorCliente(desde: string, hasta: string, user?: string | 
   const { data } = await sb.rpc("g_por_cliente", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
-export async function gPorTipoCaso(desde: string, hasta: string, user?: string | null) {
+// Top de casos que más tiempo acumulan en el periodo (reincidencia).
+export async function gTopCasos(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("g_por_tipo_caso", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data } = await sb.rpc("g_top_casos", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
   return data ?? [];
 }
 
