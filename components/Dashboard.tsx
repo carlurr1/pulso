@@ -23,6 +23,8 @@ const ICON: Record<Categoria, any> = {
 };
 const hoy = () => new Date().toISOString().slice(0, 10);
 const todayISO = hoy;
+const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación" };
+const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo" };
 const initials = (u: { nombre: string; apellido?: string | null }) =>
   (u.nombre[0] + (u.apellido?.[0] ?? "")).toUpperCase();
 const firstLast = (n: string, a?: string | null) => `${n} ${(a ?? "").split(" ")[0]}`.trim();
@@ -75,9 +77,18 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   };
   useEffect(() => { reload(); reloadTurno(); data.getEquipo().then(setEquipo).catch(() => {}); /* eslint-disable-next-line */ }, []);
 
-  const salir = async (tipo: "break" | "almuerzo") => {
+  // Estado de los compañeros (en línea / pausa / desconectado), refresca solo.
+  const [companeros, setCompaneros] = useState<any[]>([]);
+  useEffect(() => {
+    const load = () => data.getEquipoEstado().then(setCompaneros).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  const salir = async (tipo: data.PausaTipo) => {
     setPausaBusy(true);
-    try { await data.iniciarPausa(perfil.id, tipo); await reloadTurno(); fire(tipo === "break" ? "En break — tu tiempo está en pausa" : "En almuerzo — tu tiempo está en pausa"); }
+    try { await data.iniciarPausa(perfil.id, tipo); await reloadTurno(); fire(`En ${PAUSA_LBL[tipo].toLowerCase()} — tu tiempo está en pausa`); }
     catch (e: any) { fire("Error: " + (e.message ?? "")); }
     finally { setPausaBusy(false); }
   };
@@ -171,17 +182,39 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         <div className="turnoacc">
           {pausa ? (
             <div className="enpausa">
-              <span className="pausachip"><CircleDot size={13} /> En {pausa.tipo === "almuerzo" ? "almuerzo" : "break"} desde {new Date(pausa.inicio).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+              <span className="pausachip"><CircleDot size={13} /> {PAUSA_LBL[pausa.tipo] ?? "Pausa"} desde {new Date(pausa.inicio).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>
               <button className="btn primary sm" disabled={pausaBusy} onClick={volver}>Volví</button>
             </div>
           ) : (
             <>
-              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Salir a break</button>
-              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Salir a almuerzo</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Break</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Almuerzo</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("reunion")}>Reunión interna</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("capacitacion")}>Capacitación</button>
             </>
           )}
         </div>
       </div>
+
+      {companeros.length > 1 && (
+        <div className="card mt15">
+          <div className="row-between mb10">
+            <div className="h2">Compañeros</div>
+            <span className="chip done"><span className="liveblip" /> {companeros.filter((c) => c.estado === "online").length} en línea</span>
+          </div>
+          <div className="teamstrip">
+            {companeros.filter((c) => c.user_id !== perfil.id).map((c) => (
+              <div key={c.user_id} className="mate" title={c.cargo ?? ""}>
+                <span className="uava xsmall">{(c.nombre?.[0] ?? "") + (c.apellido?.[0] ?? "")}</span>
+                <span className="matename">{firstLast(c.nombre, c.apellido)}</span>
+                <span className={"chip s11 " + (ESTADO_CHIP[c.estado] ?? "sin")}>
+                  {c.estado === "online" ? "En línea" : c.estado === "offline" ? "Desconectado" : PAUSA_LBL[c.estado] ?? c.estado}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid two mt15 mb20">
         <div className="card tight statline">
@@ -1568,7 +1601,13 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
               <tr key={f.user_id}>
                 <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
                 <td className="s12">{f.cargo}</td>
-                <td>{f.en_linea ? <span className="chip done"><span className="liveblip" /> En línea</span> : <span className="chip sin">Desconectado</span>}</td>
+                <td>
+                  {f.pausa_tipo ? (
+                    <span className={"chip " + (ESTADO_CHIP[f.pausa_tipo] ?? "medio")} title={f.pausa_desde ? "Desde " + new Date(f.pausa_desde).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }) : ""}>
+                      <CircleDot size={11} /> {PAUSA_LBL[f.pausa_tipo] ?? f.pausa_tipo}
+                    </span>
+                  ) : f.en_linea ? <span className="chip done"><span className="liveblip" /> En línea</span> : <span className="chip sin">Desconectado</span>}
+                </td>
                 <td className="mono s12">{f.ultimo ? new Date(f.ultimo).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : <span className="faint">—</span>}</td>
                 <td className="mono bold primary">{fmtMin(f.minutos_logueado || 0)}</td>
                 <td className="mono bold">{f.minutos_pc ? fmtMin(f.minutos_pc) : <span className="faint">—</span>}</td>

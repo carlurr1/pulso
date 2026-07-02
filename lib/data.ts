@@ -343,12 +343,19 @@ export async function getPausaActiva(userId: string) {
   const { data } = await sb.from("pausas").select("*").eq("user_id", userId).eq("fecha", hoy()).is("fin", null).order("inicio", { ascending: false }).limit(1).maybeSingle();
   return data;
 }
-export async function iniciarPausa(userId: string, tipo: "break" | "almuerzo") {
+export type PausaTipo = "break" | "almuerzo" | "reunion" | "capacitacion";
+export async function iniciarPausa(userId: string, tipo: PausaTipo) {
   const sb = createClient();
   // cierra cualquier pausa abierta antes de abrir otra
   await sb.from("pausas").update({ fin: new Date().toISOString() }).eq("user_id", userId).eq("fecha", hoy()).is("fin", null);
   const { error } = await sb.from("pausas").insert({ user_id: userId, tipo });
   if (error) throw error;
+}
+// Estado simple del equipo (en línea / pausa / desconectado) — visible para todos.
+export async function getEquipoEstado() {
+  const sb = createClient();
+  const { data } = await sb.rpc("equipo_estado");
+  return (data ?? []) as { user_id: string; nombre: string; apellido: string | null; cargo: string | null; estado: string }[];
 }
 export async function terminarPausa(userId: string) {
   const sb = createClient();
