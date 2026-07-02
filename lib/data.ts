@@ -343,7 +343,7 @@ export async function getPausaActiva(userId: string) {
   const { data } = await sb.from("pausas").select("*").eq("user_id", userId).eq("fecha", hoy()).is("fin", null).order("inicio", { ascending: false }).limit(1).maybeSingle();
   return data;
 }
-export type PausaTipo = "break" | "almuerzo" | "reunion" | "capacitacion";
+export type PausaTipo = "break" | "almuerzo" | "reunion" | "capacitacion" | "bano";
 export async function iniciarPausa(userId: string, tipo: PausaTipo) {
   const sb = createClient();
   // cierra cualquier pausa abierta antes de abrir otra
