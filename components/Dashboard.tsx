@@ -143,7 +143,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         <div>
           <div className="eyebrow">Bandeja del día</div>
           <div className="h1">Tus casos de hoy</div>
-          <div className="sub">Selecciona un caso y registra la gestión que hiciste. Si te llega un caso nuevo, agrégalo tú mismo.</div>
+          <div className="sub">Selecciona un caso y registra la gestión que hiciste. Si te llega un caso nuevo, agrégalo tú mismo. Los casos pendientes de días anteriores siguen aquí hasta que los gestiones.</div>
         </div>
         <div className="gap9">
           <button className="btn ghost" onClick={() => setModal({ libre: true })}><Phone size={15} />Gestión sin caso asignado</button>
@@ -204,6 +204,11 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
                       {a.estado === "gestionado" ? <span className="chip done"><Check size={11} />Cerrado por hoy</span>
                         : a.estado === "progreso" ? <span className="chip prog"><CircleDot size={11} />En progreso</span>
                           : <span className="chip pend">Pendiente</span>}
+                      {a.fecha < hoy() && (
+                        <span className="chip late"><AlertTriangle size={11} />
+                          Atrasado · {dayLabel(a.fecha)} {new Date(a.fecha + "T12:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })}
+                        </span>
+                      )}
                       {lg && <span className="faint">· Última: {tName(lg.tipo_id)}</span>}
                     </div>
                   </div>

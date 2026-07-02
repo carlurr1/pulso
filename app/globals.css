@@ -76,6 +76,7 @@
 .chip.pend{background:var(--danger-50);color:var(--danger)}
 .chip.prog{background:var(--warn-50);color:var(--warn)}
 .chip.done{background:var(--ok-50);color:var(--ok)}
+.chip.late{background:var(--warn-50);color:var(--warn)}
 .chip.neutral{background:var(--surface-2);color:var(--ink-soft)}
 .chip.alto{background:var(--danger-50);color:var(--danger)}
 .chip.medio{background:var(--warn-50);color:var(--warn)}

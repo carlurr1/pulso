@@ -27,11 +27,24 @@ export async function getCatalogo(): Promise<GestionTipo[]> {
 }
 
 // ── BANDEJA DEL DÍA (vista agente) ────────────────────────────────
+//    Incluye el ARRASTRE: los casos de días anteriores que sigan en
+//    pendiente/progreso permanecen en la bandeja hasta que se gestionen
+//    (ventana de 30 días para acotar la consulta).
 export async function getMiBandeja(userId: string, fecha = hoy()): Promise<Asignacion[]> {
   const sb = createClient();
+  const desde = new Date(new Date(fecha + "T12:00:00").getTime() - 30 * 864e5).toISOString().slice(0, 10);
   const { data } = await sb.from("asignaciones").select("*")
-    .eq("user_id", userId).eq("fecha", fecha).order("created_at");
-  const filas = (data ?? []) as Asignacion[];
+    .eq("user_id", userId).gte("fecha", desde).lte("fecha", fecha)
+    .or(`fecha.eq.${fecha},estado.neq.gestionado`)
+    .order("fecha").order("created_at");
+  let filas = (data ?? []) as Asignacion[];
+  // Si el mismo caso fue re-asignado hoy, mostrar solo la copia más reciente.
+  const masReciente = new Map<string, string>();
+  filas.forEach((a) => {
+    const prev = masReciente.get(a.numero_caso);
+    if (!prev || a.fecha > prev) masReciente.set(a.numero_caso, a.fecha);
+  });
+  filas = filas.filter((a) => a.fecha === masReciente.get(a.numero_caso));
   if (filas.length) {
     const numeros = filas.map((a) => a.numero_caso).filter((n) => n && !n.startsWith("REU-"));
     if (numeros.length) {
