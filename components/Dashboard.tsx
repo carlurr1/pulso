@@ -23,8 +23,8 @@ const ICON: Record<Categoria, any> = {
 };
 const hoy = () => new Date().toISOString().slice(0, 10);
 const todayISO = hoy;
-const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación" };
-const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo" };
+const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño" };
+const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio" };
 const initials = (u: { nombre: string; apellido?: string | null }) =>
   (u.nombre[0] + (u.apellido?.[0] ?? "")).toUpperCase();
 const firstLast = (n: string, a?: string | null) => `${n} ${(a ?? "").split(" ")[0]}`.trim();
@@ -189,6 +189,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
             <>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Break</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Almuerzo</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("bano")}>Baño</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("reunion")}>Reunión interna</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("capacitacion")}>Capacitación</button>
             </>
