@@ -260,10 +260,46 @@ export async function getMesas() {
   const { data } = await sb.from("mesas").select("*").order("orden");
   return data ?? [];
 }
-export async function agregarMesa(nombre: string) {
+export async function agregarMesa(nombre: string, grupo?: string) {
   const sb = createClient();
-  const { error } = await sb.from("mesas").insert({ nombre: nombre.toUpperCase().trim(), orden: 99 });
+  const n = nombre.toUpperCase().trim();
+  const { error } = await sb.from("mesas").insert({ nombre: n, orden: 99, grupo: (grupo || n).toUpperCase().trim() });
   if (error) throw error;
+}
+
+// ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
+// Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
+export async function getPoolPendientes() {
+  const sb = createClient();
+  const { data } = await sb.from("casos_pool").select("*").eq("estado", "pendiente").order("created_at");
+  const filas = (data ?? []) as any[];
+  if (!filas.length) return [];
+  const ids = [...new Set(filas.map((p) => p.creado_por).filter(Boolean))];
+  const { data: us } = ids.length ? await sb.from("usuarios").select("id, nombre, apellido").in("id", ids) : { data: [] as any[] };
+  const umap = new Map((us ?? []).map((u: any) => [u.id, u]));
+  const numeros = [...new Set(filas.map((p) => p.numero_caso))];
+  const { data: casos } = await sb.from("casos_sf").select("numero_caso, cliente").in("numero_caso", numeros);
+  const cmap = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
+  filas.forEach((p) => { p.creador = p.creado_por ? umap.get(p.creado_por) ?? null : null; p.cliente = cmap.get(p.numero_caso) ?? null; });
+  return filas;
+}
+// Asignar (senior) o tomarse (agente) un caso del contenedor. Las reglas
+// (mesa propia, senior de la mesa, fin de semana en el grupo) las valida la base.
+export async function poolAsignar(poolId: string, destinoId: string) {
+  const sb = createClient();
+  const { error } = await sb.rpc("pool_asignar", { p_pool: poolId, p_destino: destinoId });
+  if (error) throw new Error(error.message);
+}
+// Crear un caso y enviarlo al contenedor de otra mesa: la creación cuenta
+// como mi gestión, el caso queda en el contenedor hasta que lo asignen.
+export async function crearYEnviarPool(opts: {
+  userId: string; tipoId: string; numeroCaso: string; minutos: number; mesa: string;
+}) {
+  const sb = createClient();
+  await registrarGestion({ userId: opts.userId, tipoId: opts.tipoId, numeroCaso: opts.numeroCaso, minutos: opts.minutos, asignacionId: null, seguir: false });
+  const { error } = await sb.from("casos_pool").insert({ mesa: opts.mesa, numero_caso: opts.numeroCaso, creado_por: opts.userId });
+  if (error) throw error;
+  if (!opts.numeroCaso.startsWith("REU-")) enriquecerCasos([opts.numeroCaso]).catch(() => {});
 }
 // Metas de gestiones/día por mesa (semáforo del ranking).
 export async function getMetas(): Promise<Record<string, number>> {
