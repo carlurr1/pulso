@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
@@ -1496,6 +1496,14 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
 
+  // Candado del permiso de Idle Detection para roles operativos: si el permiso
+  // está en 'prompt' o 'denied', la app queda bloqueada hasta concederlo.
+  // Con la política IdleDetectionAllowedForUrls aplicada en los equipos
+  // (ver docs/medicion-tiempo-activo.md) el permiso llega 'granted' y este
+  // candado nunca aparece.
+  const [idleGate, setIdleGate] = useState<"pedir" | "denegado" | null>(null);
+  const idlePedirRef = useRef<(() => Promise<void>) | null>(null);
+
   // Presencia: abre una sesión y late cada minuto mientras la pestaña esté
   // abierta y el equipo encendido — aunque el agente trabaje en otra app o
   // pestaña. El latido corre en un Web Worker porque el navegador congela los
@@ -1543,12 +1551,24 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       if (!IdleDet) return;                       // navegador sin soporte (Firefox/Safari)
       let estado = "prompt";
       try { estado = (await (navigator as any).permissions.query({ name: "idle-detection" })).state; } catch {}
-      if (estado === "granted") { iniciarDetector(); return; }
-      if (estado === "denied") return;
-      pedirPermiso = async () => {                 // 'prompt': pedir permiso en el primer clic (gesto)
-        try { if ((await IdleDet.requestPermission()) === "granted") iniciarDetector(); } catch {}
+      if (estado === "granted") { iniciarDetector(); setIdleGate(null); return; }
+      const conCandado = perfil.rol === "agente" || perfil.rol === "senior";
+      if (!conCandado) {
+        if (estado === "denied") return;
+        pedirPermiso = async () => {               // 'prompt': pedir permiso en el primer clic (gesto)
+          try { if ((await IdleDet.requestPermission()) === "granted") iniciarDetector(); } catch {}
+        };
+        window.addEventListener("click", pedirPermiso, { once: true });
+        return;
+      }
+      // Rol operativo: la app se bloquea hasta que el permiso quede concedido.
+      idlePedirRef.current = async () => {
+        let r = "denied";
+        try { r = await IdleDet.requestPermission(); } catch {}
+        if (r === "granted") { setIdleGate(null); iniciarDetector(); }
+        else setIdleGate("denegado");
       };
-      window.addEventListener("click", pedirPermiso, { once: true });
+      setIdleGate(estado === "denied" ? "denegado" : "pedir");
     };
 
     (async () => {
@@ -1579,6 +1599,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("beforeunload", cerrar);
       if (pedirPermiso) window.removeEventListener("click", pedirPermiso);
+      idlePedirRef.current = null;
       if (fallbackTimer) clearInterval(fallbackTimer);
       if (worker) { worker.postMessage("stop"); worker.terminate(); }
       if (blobUrl) URL.revokeObjectURL(blobUrl);
@@ -1689,6 +1710,34 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         </div>
       </div>
       {toast && <div className="toast"><Check size={16} color="#2BD0C3" />{toast}</div>}
+      {idleGate && (
+        <div className="overlay alta gate">
+          <div className="alertcard">
+            <div className="alertico" style={{ animation: "none" }}><ShieldCheck size={30} /></div>
+            {idleGate === "pedir" ? (
+              <>
+                <div className="gatetitle">Activa la medición de tiempo activo</div>
+                <div className="gatemsg">
+                  Pulso registra tu tiempo activo en el equipo para calcular la productividad del turno.
+                  Pulsa <b>Activar</b> y luego <b>Permitir</b> en el aviso del navegador.
+                  Solo detecta si estás activo o ausente — nunca lee lo que escribes ni lo que ves.
+                </div>
+                <button className="btn primary block" onClick={() => idlePedirRef.current?.()}>Activar medición</button>
+              </>
+            ) : (
+              <>
+                <div className="gatetitle">El permiso quedó bloqueado</div>
+                <div className="gatemsg">
+                  El navegador tiene bloqueada la detección de actividad para Pulso.
+                  Haz clic en el <b>candado</b> junto a la dirección → <b>Configuración del sitio</b> →
+                  busca <b>Uso del dispositivo</b> (detección de inactividad) → <b>Permitir</b>, y recarga.
+                </div>
+                <button className="btn primary block" onClick={() => location.reload()}>Ya lo permití — recargar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {alertaIn && (
         <div className="overlay alta" onClick={cerrarAlerta}>
           <div className="alertcard" onClick={(e) => e.stopPropagation()}>
