@@ -523,7 +523,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
       try {
         const [k, rk, r, t, te, cl, tc, gd] = await Promise.all([
           data.gKpis(desde, hasta, p), data.gRanking(desde, hasta), data.gPorRol(desde, hasta),
-          data.gPorTipo(desde, hasta, p), data.gTendencia(desde, hasta, p), data.gPorCliente(desde, hasta, p),
+          data.gPorTipo(desde, hasta, p), data.gTendenciaKpi(desde, hasta, p), data.gPorCliente(desde, hasta, p),
           data.gTopCasos(desde, hasta, p), data.getGestionesDia(),
         ]);
         if (!vivo) return;
@@ -534,7 +534,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   }, [desde, hasta, persona]);
 
   const porTipo = tipos.map((t) => ({ nombre: t.nombre.length > 22 ? t.nombre.slice(0, 20) + "…" : t.nombre, n: t.total, color: CATS[t.categoria as Categoria].color })).slice(0, 8);
-  const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), gestiones: d.gestiones, horas: +(d.minutos / 60).toFixed(1) }));
+  const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), efectividad: d.efectividad, productividad: d.productividad, gestiones: d.gestiones }));
   const roleData = roles.map((r) => ({ rol: r.rol, efectividad: r.efectividad ?? 0, carga: r.carga ?? 0 }));
   const maxCli = Math.max(1, ...clientes.map((c) => c.minutos));
   const maxCaso = Math.max(1, ...topCasos.map((c) => c.minutos));
@@ -545,6 +545,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
     { nombre: "Por tipo", filas: tipos.map((t) => ({ Gestión: t.nombre, Cantidad: t.total, "Tiempo (h)": +(t.minutos / 60).toFixed(1) })) },
     { nombre: "Clientes", filas: clientes.map((c) => ({ Cliente: c.cliente, Casos: c.casos, Gestiones: c.gestiones, "Tiempo (h)": +(c.minutos / 60).toFixed(1) })) },
     { nombre: "Top casos", filas: topCasos.map((c) => ({ Caso: c.numero_caso, Cliente: c.cliente ?? "", Gestiones: c.gestiones, Personas: c.personas, "Días": c.dias, "Tiempo (h)": +(c.minutos / 60).toFixed(1) })) },
+    { nombre: "Tendencia", filas: tend.map((d) => ({ "Día": d.dia, "Efectividad %": d.efectividad ?? "", "Productividad %": d.productividad ?? "", Gestiones: d.gestiones, "Tiempo (h)": +(d.minutos / 60).toFixed(1) })) },
   ]);
 
   if (tab === "auditoria") {
@@ -638,19 +639,20 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
           </div>
 
           <div className="card mt15">
-            <div className="h2 mb14">Evolución en el tiempo</div>
-            <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Gestiones</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Horas</span></div>
+            <div className="h2 mb4">Efectividad y productividad diarias</div>
+            <div className="sub small mb10">Los mismos indicadores del encabezado, día a día: casos gestionados sobre asignados, y tiempo registrado sobre el disponible del turno.</div>
+            <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={tline} margin={{ left: -18 }}>
                 <CartesianGrid vertical={false} stroke="#EEF1F6" />
                 <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                <Line type="monotone" dataKey="gestiones" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
-                <Line type="monotone" dataKey="horas" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
+                <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => v != null ? v + "%" : "—"} />
+                <Line type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
-            <div className="sub tiny mt6">Los fines de semana bajan por menor demanda entrante — es esperable, no es bajo rendimiento.</div>
+            <div className="sub tiny mt6">Los días sin asignaciones o sin horario cargado quedan como huecos en la línea — no puntúan ni a favor ni en contra.</div>
           </div>
 
           <div className="grid two mt15">
