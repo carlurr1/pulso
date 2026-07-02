@@ -281,19 +281,24 @@ export async function gTendenciaKpi(desde: string, hasta: string, user?: string 
 }
 
 // ── Estadísticas de supervisión (tiempo app/PC, traspasos) ────────
+//    Estas SÍ lanzan el error de Supabase: la vista lo muestra tal cual
+//    para poder diagnosticar (función faltante, caché, tipos, etc.).
 export async function eStats(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("e_stats", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data, error } = await sb.rpc("e_stats", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  if (error) throw new Error(error.message);
   return (data as any[])?.[0] ?? null;
 }
 export async function eStatsDia(desde: string, hasta: string, user?: string | null) {
   const sb = createClient();
-  const { data } = await sb.rpc("e_stats_dia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  const { data, error } = await sb.rpc("e_stats_dia", { p_desde: desde, p_hasta: hasta, p_user: user ?? null });
+  if (error) throw new Error(error.message);
   return data ?? [];
 }
 export async function eTraspasos(desde: string, hasta: string) {
   const sb = createClient();
-  const { data } = await sb.rpc("e_traspasos", { p_desde: desde, p_hasta: hasta });
+  const { data, error } = await sb.rpc("e_traspasos", { p_desde: desde, p_hasta: hasta });
+  if (error) throw new Error(error.message);
   return data ?? [];
 }
 export async function gPorCliente(desde: string, hasta: string, user?: string | null) {

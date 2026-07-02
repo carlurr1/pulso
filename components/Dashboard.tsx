@@ -906,6 +906,7 @@ function EstadisticasView() {
   const [dias, setDias] = useState<any[]>([]);
   const [traspasos, setTraspasos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
 
   useEffect(() => { data.getUsuarios().then((l: any[]) => setEquipo(l.filter((u) => u.rol === "agente" || u.rol === "senior"))); }, []);
 
@@ -920,7 +921,9 @@ function EstadisticasView() {
           data.eTraspasos(desde, hasta),
         ]);
         if (!vivo) return;
-        setStats(s); setDias(d); setTraspasos(t);
+        setStats(s); setDias(d); setTraspasos(t); setErr("");
+      } catch (e: any) {
+        if (vivo) { setErr(e?.message ?? "Error consultando Supabase"); setStats(null); }
       } finally { if (vivo) setLoading(false); }
     })();
     return () => { vivo = false; };
@@ -964,7 +967,15 @@ function EstadisticasView() {
       </div>
       <div className="sub small mt3">Promedios por persona por día trabajado. Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)}{persona ? " · " + (equipo.find((u) => u.id === persona)?.nombre ?? "") : ""}</div>
 
-      {loading ? <div className="card mt20"><div className="empty">Cargando estadísticas…</div></div> : !stats ? <div className="card mt20"><div className="empty">Sin datos en el periodo. ¿Ya ejecutaste 16_estadisticas.sql en Supabase?</div></div> : (
+      {loading ? <div className="card mt20"><div className="empty">Cargando estadísticas…</div></div> : err ? (
+        <div className="card mt20"><div className="empty">
+          <AlertTriangle size={28} className="dim" />
+          <div><b>No se pudieron cargar las estadísticas.</b><br />
+            <span className="mono s12">{err}</span><br />
+            <span className="sub small">Si dice que la función no existe, re-ejecuta <b>16_estadisticas.sql</b> en Supabase → SQL Editor y recarga esta página.</span>
+          </div>
+        </div></div>
+      ) : !stats ? <div className="card mt20"><div className="empty">Sin actividad registrada en el periodo seleccionado.</div></div> : (
         <>
           <div className="grid six mt16">
             <Stat icon={Clock} value={promMin(stats.minutos_app)} label="Tiempo en la app · prom./día" color="#0098D6" />
