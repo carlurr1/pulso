@@ -398,6 +398,21 @@ export function suscribirAlertas(userId: string, onAlerta: (a: any) => void) {
   return () => { sb.removeChannel(ch); };
 }
 
+// ── Notificaciones de asignaciones (en vivo) ──────────────────────
+export function suscribirAsignaciones(userId: string, canal: string, cb: (a: any) => void) {
+  const sb = createClient();
+  const ch = sb
+    .channel(`asig-${canal}-${userId}`)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "asignaciones", filter: `user_id=eq.${userId}` }, (payload) => cb(payload.new))
+    .subscribe();
+  return () => { sb.removeChannel(ch); };
+}
+export async function getClienteCaso(numeroCaso: string): Promise<string | null> {
+  const sb = createClient();
+  const { data } = await sb.from("casos_sf").select("cliente").eq("numero_caso", numeroCaso).maybeSingle();
+  return (data as any)?.cliente ?? null;
+}
+
 // ── ANUNCIOS ANCLADOS (con confirmación de lectura) ───────────────
 export async function crearAnuncio(mensaje: string, requiereRespuesta: boolean, deNombre: string) {
   const sb = createClient();

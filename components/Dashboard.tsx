@@ -77,6 +77,9 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   };
   useEffect(() => { reload(); reloadTurno(); data.getEquipo().then(setEquipo).catch(() => {}); /* eslint-disable-next-line */ }, []);
 
+  // La bandeja se refresca sola cuando me reparten o me pasan un caso.
+  useEffect(() => data.suscribirAsignaciones(perfil.id, "bandeja", () => { reload(); }), [perfil.id]);
+
   // Estado de los compañeros (en línea / pausa / desconectado), refresca solo.
   const [companeros, setCompaneros] = useState<any[]>([]);
   useEffect(() => {
@@ -604,7 +607,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   if (tab === "auditoria") {
     return (
       <>
-        <div className="row-between end"><div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Auditoría de gestiones</div></div></div>
+        <div className="row-between end"><div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Auditoría de gestiones</div></div></div>
         <AuditTable gestiones={gestDia} />
       </>
     );
@@ -613,7 +616,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
   return (
     <div id="reporte">
       <div className="row-between end">
-        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Tablero de operación</div></div>
+        <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Tablero de operación</div></div>
         <div className="toolbar no-print">
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
@@ -781,7 +784,7 @@ function ResumenView() {
   return (
     <div id="reporte">
       <div className="row-between end">
-        <div><div className="eyebrow">Resumen ejecutivo · Group COS para ETB</div><div className="h1">Operación Mayoristas</div></div>
+        <div><div className="eyebrow">Resumen ejecutivo · Group COS para ETB</div><div className="h1">Operación Help Desk</div></div>
         <div className="toolbar no-print">
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
@@ -888,7 +891,7 @@ function BandejaEquipoView() {
   return (
     <div>
       <div className="row-between end">
-        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Bandeja del equipo</div></div>
+        <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Bandeja del equipo</div></div>
         <div className="toolbar">
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
@@ -1008,7 +1011,7 @@ function EstadisticasView() {
   return (
     <div>
       <div className="row-between end">
-        <div><div className="eyebrow">Coordinación · Mayoristas</div><div className="h1">Estadísticas</div></div>
+        <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">Estadísticas</div></div>
         <div className="toolbar">
           <select className="inp dateinp" value={persona} onChange={(e) => setPersona(e.target.value)}>
             <option value="">Todo el equipo</option>
@@ -1745,7 +1748,7 @@ function HorarioSemana() {
   return (
     <div className="card nopad mt15">
       <div className="tblhead">
-        <div><div className="h2">Horario semanal · Mayoristas</div><div className="sub small">Turno de cada persona por día. Cámbiate de semana con la fecha.</div></div>
+        <div><div className="h2">Horario semanal · Help Desk</div><div className="sub small">Turno de cada persona por día. Cámbiate de semana con la fecha.</div></div>
         <input type="date" className="inp dateinp" value={monday} onChange={(e) => { const d = new Date(e.target.value + "T12:00:00"); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); setMonday(d.toISOString().slice(0, 10)); }} />
       </div>
       <div className="tblscroll">
@@ -1958,6 +1961,30 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     return () => { off?.(); };
   }, [perfil.id]);
   const anuncioActual = anuncios[0] ?? null;
+
+  // Notificaciones de casos que me reparten o me traspasan (en vivo).
+  const [notifs, setNotifs] = useState<any[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [noLeidas, setNoLeidas] = useState(0);
+  useEffect(() => {
+    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    return data.suscribirAsignaciones(perfil.id, "notif", async (a: any) => {
+      if (!a.asignado_por || a.asignado_por === perfil.id) return;   // lo agregué yo mismo
+      // Breve espera para que el enriquecimiento de Salesforce alcance a guardar el cliente.
+      await new Promise((r) => setTimeout(r, 2500));
+      let de: string | null = null; let cli: string | null = null;
+      try {
+        const u = (await data.getEquipoEstado()).find((x) => x.user_id === a.asignado_por);
+        if (u) de = firstLast(u.nombre, u.apellido);
+      } catch {}
+      try { cli = await data.getClienteCaso(a.numero_caso); } catch {}
+      const texto = `${de ? de + " te pasó" : "Te asignaron"} el caso #${a.numero_caso}${cli ? " · " + cli : ""}`;
+      setNotifs((prev) => [{ id: a.id, texto, at: new Date().toISOString() }, ...prev].slice(0, 20));
+      setNoLeidas((n) => n + 1);
+      fire(texto); beep();
+    });
+  }, [perfil.id]);
+
   const confirmarAnuncio = async () => {
     if (!anuncioActual || (anuncioActual.requiere_respuesta && !respAnuncio.trim())) return;
     setConfirmandoAn(true);
@@ -1997,7 +2024,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       <aside className="side">
         <div className="brand">
           <div className="brandmark-logo"><img src="/pulso-mark.png" alt="Pulso" /></div>
-          <div><div className="brandname">Pulso</div><div className="brandsub">Group COS · ETB Mayoristas</div></div>
+          <div><div className="brandname">Pulso</div><div className="brandsub">Group COS · ETB Help Desk</div></div>
         </div>
         <div className="navlbl">Operación</div>
         {items.map((it) => (
@@ -2027,6 +2054,26 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
               ))}
             </div>
           ) : <div className="chip neutral">{perfil.cargo}</div>}
+          {(perfil.rol === "agente" || perfil.rol === "senior") && (
+            <div className="notifwrap">
+              <button className="notifbtn" title="Notificaciones" onClick={() => { setNotifOpen(!notifOpen); setNoLeidas(0); }}>
+                <Bell size={17} />
+                {noLeidas > 0 && <span className="notifbadge">{noLeidas}</span>}
+              </button>
+              {notifOpen && (
+                <div className="notifpanel">
+                  <div className="h2 mb6" style={{ fontSize: 13 }}>Notificaciones</div>
+                  {notifs.length === 0 && <div className="sub small">Nada nuevo por ahora. Aquí verás los casos que te repartan o te pasen.</div>}
+                  {notifs.map((n) => (
+                    <div key={n.id} className="notifitem">
+                      <div className="s12">{n.texto}</div>
+                      <div className="sub tiny">{new Date(n.at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="topbar-cliente"><span className="cliente-lbl">Cliente</span><img src="/etb.png" alt="eTb" height={26} /></div>
         </header>
 

@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pulso · Group COS para ETB Mayoristas",
-  description: "Monitoreo de productividad del Help Desk Mayoristas.",
+  title: "Pulso · Group COS para ETB Help Desk",
+  description: "Monitoreo de productividad del Help Desk ETB.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Pulso" },
   icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
