@@ -347,6 +347,21 @@ code{font-family:'JetBrains Mono',monospace;background:var(--surface-2);padding:
 /* ── Alerta entrante (tiempo real) ── */
 .overlay.alta{z-index:200}
 .overlay.gate{z-index:300}
+/* Resumen ejecutivo estilo BI */
+.bandlbl{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;color:var(--ink);
+  letter-spacing:-.2px;padding-left:11px;border-left:4px solid var(--primary);line-height:1.2}
+.kpibi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 15px;
+  box-shadow:0 1px 2px rgba(21,35,63,.04)}
+.kpibi-top{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.kpibi-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex-shrink:0}
+.kpibi-label{font-size:11px;color:var(--ink-soft);font-weight:600;line-height:1.15}
+.kpibi-val{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;letter-spacing:-1px;line-height:1}
+.kpibi-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.kpibi-meta{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px}
+.kpibi-meta.ok{background:var(--ok-50);color:var(--ok)}
+.kpibi-meta.bad{background:var(--danger-50);color:var(--danger)}
+.kpibi-delta{font-size:10.5px;font-weight:700}
+.kpibi-delta.up{color:var(--ok)}.kpibi-delta.down{color:var(--danger)}.kpibi-delta.flat{color:var(--ink-faint)}
 .statDelta{font-size:11px;font-weight:700;margin-top:2px}
 .statDelta.up{color:var(--ok)}
 .statDelta.down{color:var(--danger)}
