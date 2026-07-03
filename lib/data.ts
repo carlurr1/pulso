@@ -501,14 +501,21 @@ export async function guardarPushSub(userId: string, sub: PushSubscription) {
 export async function getConfigOperacion() {
   const sb = createClient();
   const { data } = await sb.from("config_operacion").select("*").eq("id", 1).maybeSingle();
-  return (data as any) ?? { break_max_min: 30, almuerzo_max_min: 60 };
+  return (data as any) ?? { break_max_min: 30, almuerzo_max_min: 60, meta_efectividad: 85, meta_productividad: 80 };
 }
-export async function guardarConfigOperacion(breakMax: number, almuerzoMax: number) {
+export async function guardarConfigOperacion(campos: {
+  break_max_min?: number; almuerzo_max_min?: number; meta_efectividad?: number; meta_productividad?: number;
+}) {
   const sb = createClient();
   const { error } = await sb.from("config_operacion")
-    .update({ break_max_min: breakMax, almuerzo_max_min: almuerzoMax, actualizado_at: new Date().toISOString() })
-    .eq("id", 1);
+    .update({ ...campos, actualizado_at: new Date().toISOString() }).eq("id", 1);
   if (error) throw error;
+}
+// Comportamiento mensual (informe de cierre estilo BI).
+export async function gPorMes(desde: string, hasta: string, mesa?: string | null) {
+  const sb = createClient();
+  const { data } = await sb.rpc("g_por_mes", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
+  return data ?? [];
 }
 
 // ── Notificaciones de asignaciones (en vivo) ──────────────────────

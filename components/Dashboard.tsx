@@ -120,6 +120,27 @@ const SERIES_EFPROD = [
   { key: "productividad", name: "Productividad", color: "#6D5AE6" },
 ];
 
+// Tarjeta KPI estilo BI: número grande, meta con semáforo y delta vs anterior.
+function KpiBI({ icon: Ico, value, label, color, meta, cumple, delta, deltaDir }: any) {
+  return (
+    <div className="kpibi">
+      <div className="kpibi-top">
+        <span className="kpibi-ico" style={{ background: color + "18", color }}><Ico size={16} /></span>
+        <span className="kpibi-label">{label}</span>
+      </div>
+      <div className="kpibi-val" style={{ color }}>{value}</div>
+      <div className="kpibi-foot">
+        {meta != null && (
+          <span className={"kpibi-meta " + (cumple ? "ok" : "bad")}>
+            {cumple ? "▲" : "▼"} Meta: {meta}
+          </span>
+        )}
+        {delta != null && <span className={"kpibi-delta " + (deltaDir ?? "flat")}>{deltaDir === "up" ? "↑" : deltaDir === "down" ? "↓" : ""} {delta}</span>}
+      </div>
+    </div>
+  );
+}
+
 // Delta vs periodo anterior. invert=true cuando subir es MALO (ej. alertas).
 function calcDelta(cur: number | null | undefined, prev: number | null | undefined, unit = "", invert = false) {
   if (cur == null || prev == null) return {};
@@ -1015,11 +1036,16 @@ function ResumenView() {
   const [tend, setTend] = useState<any[]>([]);
   const [resolucion, setResolucion] = useState<any[]>([]);
   const [porMesa, setPorMesa] = useState<any[]>([]);
+  const [porMes, setPorMes] = useState<any[]>([]);
+  const [cfg, setCfg] = useState<any>({ meta_efectividad: 85, meta_productividad: 80 });
   const [equipo, setEquipo] = useState<any[]>([]);
   const [persona, setPersona] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior"))); }, []);
+  useEffect(() => {
+    data.getUsuarios().then((l) => setEquipo(l.filter((u: any) => u.rol === "agente" || u.rol === "senior")));
+    data.getConfigOperacion().then(setCfg).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let vivo = true;
@@ -1029,14 +1055,17 @@ function ResumenView() {
       const m = mesa || null;
       try {
         const [pDesde, pHasta] = rangoAnterior(desde, hasta);
-        const [k, kp, rk, cl, tp, te, rs, mesas] = await Promise.all([
+        // Comportamiento mensual: 6 meses hasta el mes de "hasta".
+        const mesDesde = new Date(hasta + "T12:00:00Z"); mesDesde.setUTCDate(1); mesDesde.setUTCMonth(mesDesde.getUTCMonth() - 5);
+        const [k, kp, rk, cl, tp, te, rs, mm, mesas] = await Promise.all([
           data.gKpis(desde, hasta, p, m), data.gKpis(pDesde, pHasta, p, m),
           data.gRanking(desde, hasta, m), data.gPorCliente(desde, hasta, p, m), data.gPorTipo(desde, hasta, p, m),
           data.gTendenciaKpi(desde, hasta, p, m), data.eResolucion(desde, hasta, m),
+          data.gPorMes(mesDesde.toISOString().slice(0, 10), hasta, m).catch(() => []),
           data.getMesas().catch(() => []),
         ]);
         if (!vivo) return;
-        setKpis(k); setKpisPrev(kp); setRanking(rk); setClientes(cl); setTipos(tp); setTend(te); setResolucion(rs);
+        setKpis(k); setKpisPrev(kp); setRanking(rk); setClientes(cl); setTipos(tp); setTend(te); setResolucion(rs); setPorMes(mm);
         // Comparativo entre mesas/grupos (solo con la vista global y varias mesas).
         if (!m && !p && (mesas as any[]).length > 1) {
           const grupos = [...new Set((mesas as any[]).map((x: any) => x.grupo || x.nombre))];
@@ -1083,20 +1112,60 @@ function ResumenView() {
 
       {loading ? <div className="card mt20"><div className="empty">Preparando resumen…</div></div> : (
         <>
-          <div className="grid six mt16">
-            <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad del equipo" color="#0098D6" pct={kpis?.efectividad ?? 0}
+          <div className="bandlbl mt16">Indicadores de gestión</div>
+          <div className="grid six mt8">
+            <KpiBI icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad" color="#0098D6"
+              meta={(cfg.meta_efectividad ?? 85) + "%"} cumple={(kpis?.efectividad ?? 0) >= (cfg.meta_efectividad ?? 85)}
               {...calcDelta(kpis?.efectividad, kpisPrev?.efectividad, "%")} />
-            <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0}
+            <KpiBI icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6"
+              meta={(cfg.meta_productividad ?? 80) + "%"} cumple={(kpis?.productividad ?? 0) >= (cfg.meta_productividad ?? 80)}
               {...calcDelta(kpis?.productividad, kpisPrev?.productividad, "%")} />
-            <Stat icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#2BA36F" pct={kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0}
+            <KpiBI icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#2BA36F"
               {...calcDelta(kpis?.gestionados, kpisPrev?.gestionados)} />
-            <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A"
+            <KpiBI icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A"
               {...calcDelta(kpis?.gestiones, kpisPrev?.gestiones)} />
-            <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4"
+            <KpiBI icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4"
               {...calcDelta(kpis?.minutos != null ? kpis.minutos / 60 : null, kpisPrev?.minutos != null ? kpisPrev.minutos / 60 : null, "h")} />
-            <Stat icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C"
+            <KpiBI icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C"
               {...calcDelta(kpis?.alertas, kpisPrev?.alertas, "", true)} />
           </div>
+
+          {porMes.length > 1 && (
+            <>
+              <div className="bandlbl mt16">Comportamiento mensual</div>
+              <div className="grid two mt8">
+                <div className="card">
+                  <div className="h2 mb4">Casos cerrados por mes</div>
+                  <div className="sub small mb10">Tendencia de cierres en los últimos meses.</div>
+                  <ResponsiveContainer width="100%" height={210}>
+                    <AreaChart data={porMes.map((x: any) => ({ mes: x.mes, casos: x.casos_cerrados }))} margin={{ left: -18 }}>
+                      <defs><linearGradient id="gradMes" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0098D6" stopOpacity={0.28} /><stop offset="100%" stopColor="#0098D6" stopOpacity={0.02} /></linearGradient></defs>
+                      <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                      <Area type="monotone" dataKey="casos" name="Casos cerrados" stroke="#0098D6" strokeWidth={2.5} fill="url(#gradMes)" dot={{ r: 3, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="card">
+                  <div className="h2 mb4">Efectividad y productividad por mes</div>
+                  <div className="sub small mb10">Evolución de los dos indicadores clave.</div>
+                  <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
+                  <ResponsiveContainer width="100%" height={210}>
+                    <LineChart data={porMes.map((x: any) => ({ mes: x.mes, efectividad: x.efectividad, productividad: x.productividad }))} margin={{ left: -18 }}>
+                      <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "%" : "—")} />
+                      <Line type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
+                      <Line type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </>
+          )}
 
           {porMesa.length > 1 && (
             <div className="card mt15">
@@ -1146,7 +1215,8 @@ function ResumenView() {
             </div>
           </div>
 
-          <div className="grid two mt15">
+          <div className="bandlbl mt16">Análisis operativo</div>
+          <div className="grid two mt8">
             <div className="card">
               <div className="h2 mb4">En qué se va el trabajo</div>
               <div className="sub small mb10">Horas por tipo de gestión en el periodo.</div>
@@ -1191,6 +1261,30 @@ function ResumenView() {
                         <td className="mono">{r.casos}</td>
                         <td className="mono bold">{r.prom_dias}</td>
                         <td className="mono">{r.max_dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {top.length > 0 && !persona && (
+            <div className="card mt15">
+              <div className="h2 mb4">Detalle por analista</div>
+              <div className="sub small mb10">Rendimiento individual en el periodo, ordenado por tiempo trabajado.</div>
+              <div className="tblscroll">
+                <table className="tbl">
+                  <thead><tr><th>#</th><th>Analista</th><th>Cargo</th><th>Gestiones</th><th>Tiempo</th><th>Efectividad</th></tr></thead>
+                  <tbody>
+                    {ranking.filter((r) => r.gestiones > 0 || r.asignados > 0).slice(0, 15).map((r, i) => (
+                      <tr key={r.user_id}>
+                        <td className="mono soft">{i + 1}</td>
+                        <td className="bold">{firstLast(r.nombre, r.apellido)}</td>
+                        <td><span className="chip neutral s11">{r.cargo}</span></td>
+                        <td className="mono">{r.gestiones}</td>
+                        <td className="mono bold">{horas(r.minutos)}</td>
+                        <td className="mono">{r.efectividad != null ? r.efectividad + "%" : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1695,11 +1789,11 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
   // Normas de pausas (umbral de break y almuerzo).
   const [cfg, setCfg] = useState<any>(null);
   useEffect(() => { data.getConfigOperacion().then(setCfg).catch(() => {}); }, []);
-  const guardarNorma = async (campo: "break_max_min" | "almuerzo_max_min", valor: string) => {
-    const n = Math.max(1, parseInt(valor || "0", 10) || 0);
+  const guardarNorma = async (campo: "break_max_min" | "almuerzo_max_min" | "meta_efectividad" | "meta_productividad", valor: string) => {
+    const n = Math.max(0, parseInt(valor || "0", 10) || 0);
     const nuevo = { ...cfg, [campo]: n };
     setCfg(nuevo);
-    try { await data.guardarConfigOperacion(nuevo.break_max_min, nuevo.almuerzo_max_min); fire("Norma de pausas actualizada"); }
+    try { await data.guardarConfigOperacion({ [campo]: n }); fire("Configuración actualizada"); }
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
   };
   return (
@@ -1744,6 +1838,18 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
             <input className="inp mono" style={{ width: 80 }} type="number" min={1}
               defaultValue={cfg.almuerzo_max_min} key={"a" + cfg.almuerzo_max_min}
               onBlur={(e) => { if (+e.target.value !== cfg.almuerzo_max_min) guardarNorma("almuerzo_max_min", e.target.value); }} />
+          </div>
+          <div className="h2 mb4 mt16">Metas del informe</div>
+          <div className="sub small mb10">Objetivos que aparecen como "Meta: X%" en el Resumen ejecutivo (semáforo verde/rojo).</div>
+          <div className="gap9" style={{ alignItems: "center", flexWrap: "wrap" }}>
+            <label className="sub small">Meta efectividad (%)</label>
+            <input className="inp mono" style={{ width: 80 }} type="number" min={0} max={100}
+              defaultValue={cfg.meta_efectividad ?? 85} key={"me" + cfg.meta_efectividad}
+              onBlur={(e) => { if (+e.target.value !== cfg.meta_efectividad) guardarNorma("meta_efectividad", e.target.value); }} />
+            <label className="sub small" style={{ marginLeft: 14 }}>Meta productividad (%)</label>
+            <input className="inp mono" style={{ width: 80 }} type="number" min={0} max={100}
+              defaultValue={cfg.meta_productividad ?? 80} key={"mp" + cfg.meta_productividad}
+              onBlur={(e) => { if (+e.target.value !== cfg.meta_productividad) guardarNorma("meta_productividad", e.target.value); }} />
           </div>
         </>
       )}
