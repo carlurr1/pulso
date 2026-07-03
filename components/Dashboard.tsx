@@ -22,7 +22,8 @@ const ICON: Record<Categoria, any> = {
   casos: FileText, comms: Mail, tecnico: Wrench, permisos: KeyRound,
   escal: ArrowUpRight, reunion: Users, interna: Settings2,
 };
-const hoy = () => new Date().toISOString().slice(0, 10);
+// "Hoy" SIEMPRE en hora de Colombia (con UTC, a las 7 p.m. saltaba al día siguiente).
+const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 const todayISO = hoy;
 const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño" };
 const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio" };
@@ -688,7 +689,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 }
 
 /* ════════════════ utilidades de rango y exportación ════════════════ */
-const isoHace = (dias: number) => { const d = new Date(); d.setDate(d.getDate() - dias); return d.toISOString().slice(0, 10); };
+// Resta días partiendo del "hoy" de Colombia (no del reloj UTC).
+const isoHace = (dias: number) => { const d = new Date(hoy() + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - dias); return d.toISOString().slice(0, 10); };
 const fmtFecha = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
 const horas = (min: number) => (min / 60).toFixed(1) + "h";
 
