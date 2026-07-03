@@ -69,15 +69,14 @@ function SerieDiaria({ data: rows, series, unit = "", height = 220, domain }: {
   const [tipo, setTipo] = useState<"area" | "lineas" | "barras" | null>(null);
   const t = tipo ?? (rows.length <= 2 ? "barras" : "area");
   const conBrush = rows.length > 10;
-  const ejes = (
-    <>
-      <CartesianGrid vertical={false} stroke="#EEF1F6" />
-      <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-      <YAxis domain={domain} unit={unit} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + unit : "—")} />
-      {conBrush && <Brush dataKey="dia" height={20} stroke="#0098D6" fill="#F4F7FB" travellerWidth={8} />}
-    </>
-  );
+  // OJO: array, no <Fragment> — Recharts no detecta ejes/tooltip dentro de un Fragment.
+  const ejes = [
+    <CartesianGrid key="grid" vertical={false} stroke="#EEF1F6" />,
+    <XAxis key="x" dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />,
+    <YAxis key="y" domain={domain} unit={unit} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />,
+    <Tooltip key="tip" contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + unit : "—")} />,
+    ...(conBrush ? [<Brush key="brush" dataKey="dia" height={20} stroke="#0098D6" fill="#F4F7FB" travellerWidth={8} />] : []),
+  ];
   return (
     <div>
       <div className="row-end mb6 no-print">
@@ -1059,6 +1058,12 @@ function ResumenView() {
   const topCliente = clientes[0];
   const topTipo = tipos[0];
   const tline = tend.map((d) => ({ dia: fmtFecha(d.dia), efectividad: d.efectividad, productividad: d.productividad }));
+  const porTipo = tipos.slice(0, 8).map((t: any) => ({
+    nombre: t.nombre.length > 20 ? t.nombre.slice(0, 18) + "…" : t.nombre,
+    horas: +(t.minutos / 60).toFixed(1), color: CATS[t.categoria as Categoria]?.color ?? "#0098D6",
+  }));
+  const topClientes = clientes.slice(0, 6);
+  const maxCliR = Math.max(1, ...topClientes.map((c: any) => c.minutos));
 
   return (
     <div id="reporte">
@@ -1078,15 +1083,19 @@ function ResumenView() {
 
       {loading ? <div className="card mt20"><div className="empty">Preparando resumen…</div></div> : (
         <>
-          <div className="grid four mt16">
+          <div className="grid six mt16">
             <Stat icon={TrendingUp} value={(kpis?.efectividad ?? 0) + "%"} label="Efectividad del equipo" color="#0098D6" pct={kpis?.efectividad ?? 0}
               {...calcDelta(kpis?.efectividad, kpisPrev?.efectividad, "%")} />
             <Stat icon={Activity} value={(kpis?.productividad ?? "—") + (kpis?.productividad != null ? "%" : "")} label="Productividad" color="#6D5AE6" pct={kpis?.productividad ?? 0}
               {...calcDelta(kpis?.productividad, kpisPrev?.productividad, "%")} />
+            <Stat icon={Check} value={`${kpis?.gestionados ?? 0}/${kpis?.asignados ?? 0}`} label="Casos hechos / asignados" color="#2BA36F" pct={kpis?.asignados ? (kpis.gestionados / kpis.asignados) * 100 : 0}
+              {...calcDelta(kpis?.gestionados, kpisPrev?.gestionados)} />
             <Stat icon={Inbox} value={kpis?.gestiones ?? 0} label="Gestiones realizadas" color="#26B07A"
               {...calcDelta(kpis?.gestiones, kpisPrev?.gestiones)} />
             <Stat icon={Clock} value={horas(kpis?.minutos ?? 0)} label="Tiempo productivo" color="#14B8C4"
               {...calcDelta(kpis?.minutos != null ? kpis.minutos / 60 : null, kpisPrev?.minutos != null ? kpisPrev.minutos / 60 : null, "h")} />
+            <Stat icon={AlertTriangle} value={kpis?.alertas ?? 0} label="Alertas de auditoría" color="#F2A33C"
+              {...calcDelta(kpis?.alertas, kpisPrev?.alertas, "", true)} />
           </div>
 
           {porMesa.length > 1 && (
@@ -1134,6 +1143,38 @@ function ResumenView() {
             <div className="card">
               <div className="eyebrow mb12">Gestión más frecuente</div>
               {topTipo ? <><div className="bignum">{topTipo.nombre}</div><div className="sub">{topTipo.total} veces · {horas(topTipo.minutos)}</div></> : <div className="sub">Sin datos.</div>}
+            </div>
+          </div>
+
+          <div className="grid two mt15">
+            <div className="card">
+              <div className="h2 mb4">En qué se va el trabajo</div>
+              <div className="sub small mb10">Horas por tipo de gestión en el periodo.</div>
+              {porTipo.length === 0 ? <div className="empty pad24">Sin gestiones en el periodo.</div> :
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={porTipo} layout="vertical" margin={{ left: 8 }}>
+                    <CartesianGrid horizontal={false} stroke="#EEF1F6" />
+                    <XAxis type="number" unit="h" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="nombre" width={130} tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => v + "h"} />
+                    <Bar dataKey="horas" name="Horas" radius={[0, 5, 5, 0]} maxBarSize={18}>
+                      {porTipo.map((e: any, i: number) => <Cell key={i} fill={e.color} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>}
+            </div>
+            <div className="card">
+              <div className="h2 mb4">Top clientes por tiempo <span className="sfbadge">SF</span></div>
+              <div className="sub small mb10">¿Con qué cliente nos demoramos más?</div>
+              {topClientes.length === 0 ? <div className="empty pad24">Sin casos enriquecidos con Salesforce.</div> :
+                <div className="col9">
+                  {topClientes.map((c: any, i: number) => (
+                    <div key={i}>
+                      <div className="row-between mb5"><span className="pname">{c.cliente}</span><span className="mono soft s12">{horas(c.minutos)} · {c.casos} caso(s)</span></div>
+                      <div className="prog"><div className="progfill" style={{ width: (c.minutos / maxCliR) * 100 + "%", background: "var(--primary)" }} /></div>
+                    </div>
+                  ))}
+                </div>}
             </div>
           </div>
 
@@ -2073,8 +2114,9 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
     <div className="card mb14">
       <div className="h2 mb4">Anuncio anclado para el equipo</div>
       <div className="sub small mb10">Le sale en ventana emergente a cada agente al conectarse (o al instante si está en línea) y no se quita hasta que confirme. Aquí ves quién ya lo vio y qué respondió.</div>
-      <textarea className="inp" rows={2} maxLength={300} placeholder="Ej: Recuerden que mañana es la evaluación mensual a las 9 a.m."
+      <textarea className="inp" rows={3} maxLength={1000} placeholder="Ej: Recuerden que mañana es la evaluación mensual a las 9 a.m."
         value={msg} onChange={(e) => setMsg(e.target.value)} />
+      <div className="sub tiny" style={{ textAlign: "right" }}>{msg.length}/1000</div>
       <div className="row-between mt8">
         <label className="sub small" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
           <input type="checkbox" checked={reqResp} onChange={(e) => setReqResp(e.target.checked)} />
@@ -2226,7 +2268,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
                 ))}
               </div>
               <label className="lbl mt12">Mensaje</label>
-              <textarea className="inp" rows={3} value={msg} maxLength={160} onChange={(e) => setMsg(e.target.value)} />
+              <textarea className="inp" rows={3} value={msg} maxLength={400} onChange={(e) => setMsg(e.target.value)} />
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setAlerta(null)}>Cancelar</button><button className="btn primary" disabled={enviando} onClick={enviar}>{enviando ? "Enviando…" : "Enviar alerta"}</button></div>
           </div>
@@ -2683,7 +2725,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
             <div className="alerttitle">Anuncio de {anuncioActual.de_nombre || "Coordinación"}</div>
             <div className="alertmsg">{anuncioActual.mensaje}</div>
             {anuncioActual.requiere_respuesta && (
-              <textarea className="inp mb12" rows={3} maxLength={300} placeholder="Escribe tu respuesta…"
+              <textarea className="inp mb12" rows={3} maxLength={500} placeholder="Escribe tu respuesta…"
                 value={respAnuncio} onChange={(e) => setRespAnuncio(e.target.value)} style={{ textAlign: "left" }} />
             )}
             <button className="btn primary block" disabled={confirmandoAn || (anuncioActual.requiere_respuesta && !respAnuncio.trim())} onClick={confirmarAnuncio}>
