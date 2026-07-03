@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line, Cell, AreaChart, Area,
+  LineChart, Line, Cell, AreaChart, Area, Brush,
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
@@ -54,45 +54,72 @@ function Stat({ icon: Ico, value, label, color, pct, delta, deltaDir }: any) {
     </div>
   );
 }
-// Efectividad/productividad diarias: área con degradado para rangos,
-// barras cuando hay 1-2 días (las líneas quedaban como puntos sueltos).
-function EfProdChart({ data: rows, height = 220 }: { data: any[]; height?: number }) {
+// ─── Serie diaria con selector de tipo (Área/Líneas/Barras) y deslizador ───
+//     Se usa en toda gráfica cuyo eje X son días. El tipo inicial es
+//     automático (barras con 1-2 días, área con rangos) y el usuario lo
+//     cambia con los chips. Con más de 10 días aparece un brush abajo
+//     para escoger/mover la ventana visible.
+let _chartSeq = 0;
+function SerieDiaria({ data: rows, series, unit = "", height = 220, domain }: {
+  data: any[];
+  series: { key: string; name: string; color: string }[];
+  unit?: string; height?: number; domain?: [number, number];
+}) {
+  const [uid] = useState(() => ++_chartSeq);
+  const [tipo, setTipo] = useState<"area" | "lineas" | "barras" | null>(null);
+  const t = tipo ?? (rows.length <= 2 ? "barras" : "area");
+  const conBrush = rows.length > 10;
   const ejes = (
     <>
       <CartesianGrid vertical={false} stroke="#EEF1F6" />
       <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-      <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "%" : "—")} />
+      <YAxis domain={domain} unit={unit} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + unit : "—")} />
+      {conBrush && <Brush dataKey="dia" height={20} stroke="#0098D6" fill="#F4F7FB" travellerWidth={8} />}
     </>
   );
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      {rows.length <= 2 ? (
-        <BarChart data={rows} margin={{ left: -18 }}>
-          {ejes}
-          <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[6, 6, 0, 0]} maxBarSize={64} />
-          <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[6, 6, 0, 0]} maxBarSize={64} />
-        </BarChart>
-      ) : (
-        <AreaChart data={rows} margin={{ left: -18 }}>
-          <defs>
-            <linearGradient id="gradEf" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0098D6" stopOpacity={0.28} />
-              <stop offset="100%" stopColor="#0098D6" stopOpacity={0.02} />
-            </linearGradient>
-            <linearGradient id="gradProd" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6D5AE6" stopOpacity={0.28} />
-              <stop offset="100%" stopColor="#6D5AE6" stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          {ejes}
-          <Area type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} fill="url(#gradEf)" dot={false} activeDot={{ r: 5 }} />
-          <Area type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} fill="url(#gradProd)" dot={false} activeDot={{ r: 5 }} />
-        </AreaChart>
-      )}
-    </ResponsiveContainer>
+    <div>
+      <div className="row-end mb6 no-print">
+        <div className="rolepick">
+          {([["area", "Área"], ["lineas", "Líneas"], ["barras", "Barras"]] as const).map(([k, l]) => (
+            <button key={k} className={"roleopt" + (t === k ? " on" : "")} onClick={() => setTipo(k)}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={height}>
+        {t === "barras" ? (
+          <BarChart data={rows} margin={{ left: -18 }}>
+            {ejes}
+            {series.map((s) => <Bar key={s.key} dataKey={s.key} name={s.name} fill={s.color} radius={[5, 5, 0, 0]} maxBarSize={44} />)}
+          </BarChart>
+        ) : t === "lineas" ? (
+          <LineChart data={rows} margin={{ left: -18 }}>
+            {ejes}
+            {series.map((s) => <Line key={s.key} type="monotone" dataKey={s.key} name={s.name} stroke={s.color} strokeWidth={2.5} dot={{ r: 2, fill: s.color }} activeDot={{ r: 5 }} />)}
+          </LineChart>
+        ) : (
+          <AreaChart data={rows} margin={{ left: -18 }}>
+            <defs>
+              {series.map((s) => (
+                <linearGradient key={s.key} id={`grad${uid}-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={s.color} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={s.color} stopOpacity={0.02} />
+                </linearGradient>
+              ))}
+            </defs>
+            {ejes}
+            {series.map((s) => <Area key={s.key} type="monotone" dataKey={s.key} name={s.name} stroke={s.color} strokeWidth={2.5} fill={`url(#grad${uid}-${s.key})`} dot={false} activeDot={{ r: 5 }} />)}
+          </AreaChart>
+        )}
+      </ResponsiveContainer>
+    </div>
   );
 }
+const SERIES_EFPROD = [
+  { key: "efectividad", name: "Efectividad", color: "#0098D6" },
+  { key: "productividad", name: "Productividad", color: "#6D5AE6" },
+];
 
 // Delta vs periodo anterior. invert=true cuando subir es MALO (ej. alertas).
 function calcDelta(cur: number | null | undefined, prev: number | null | undefined, unit = "", invert = false) {
@@ -914,7 +941,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
             <div className="h2 mb4">Efectividad y productividad diarias</div>
             <div className="sub small mb10">Los mismos indicadores del encabezado, día a día: casos gestionados sobre asignados, y tiempo registrado sobre el disponible del turno.</div>
             <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
-            <EfProdChart data={tline} />
+            <SerieDiaria data={tline} series={SERIES_EFPROD} unit="%" domain={[0, 100]} />
             <div className="sub tiny mt6">Los días sin asignaciones o sin horario cargado no puntúan ni a favor ni en contra.</div>
           </div>
 
@@ -1085,7 +1112,7 @@ function ResumenView() {
               <div className="h2 mb4">Evolución del periodo</div>
               <div className="sub small mb10">Efectividad y productividad diarias.</div>
               <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
-              <EfProdChart data={tline} height={200} />
+              <SerieDiaria data={tline} series={SERIES_EFPROD} unit="%" domain={[0, 100]} height={200} />
             </div>
           )}
 
@@ -1381,32 +1408,18 @@ function EstadisticasView() {
               <span className="legdot"><i style={{ background: "#14B8C4" }} />Activo en el PC</span>
               <span className="legdot"><i style={{ background: "#D858A0" }} />Registrado en gestiones</span>
             </div>
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={linea} margin={{ left: -18 }}>
-                <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                <YAxis unit="h" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "h" : "—")} />
-                <Bar dataKey="app" name="En la app" fill="#0098D6" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="pc" name="Activo en el PC" fill="#14B8C4" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="registrado" name="Registrado" fill="#D858A0" radius={[4, 4, 0, 0]} maxBarSize={26} />
-              </BarChart>
-            </ResponsiveContainer>
+            <SerieDiaria data={linea} height={230} unit="h" series={[
+              { key: "app", name: "En la app", color: "#0098D6" },
+              { key: "pc", name: "Activo en el PC", color: "#14B8C4" },
+              { key: "registrado", name: "Registrado", color: "#D858A0" },
+            ]} />
           </div>
 
           <div className="grid two mt15">
             <div className="card">
               <div className="h2 mb4">Gestiones por día</div>
               <div className="sub small mb10">Promedio de gestiones registradas por persona conectada.</div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={linea} margin={{ left: -18 }}>
-                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                  <Bar dataKey="gestiones" name="Gestiones/persona" fill="#26B07A" radius={[5, 5, 0, 0]} maxBarSize={26} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SerieDiaria data={linea} series={[{ key: "gestiones", name: "Gestiones/persona", color: "#26B07A" }]} />
             </div>
             <div className="card">
               <div className="h2 mb4">Flujo de casos: quién asigna a quién</div>
