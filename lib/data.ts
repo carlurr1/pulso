@@ -8,7 +8,10 @@ import type { Asignacion, Gestion, GestionTipo, MetricaPersona, Usuario } from "
 //  prototipo vivía en useState. RLS garantiza que cada rol solo
 //  acceda a lo que le corresponde, así que aquí no repetimos chequeos.
 // ════════════════════════════════════════════════════════════════
-const hoy = () => new Date().toISOString().slice(0, 10);
+// "Hoy" SIEMPRE en hora de Colombia. Con toISOString() (UTC), a las 7 p.m.
+// la app saltaba al día siguiente: bandejas vacías, actividad en cero y
+// gestiones guardadas con la fecha de mañana.
+const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
 // ── Sesión / perfil ───────────────────────────────────────────────
 export async function getPerfil(): Promise<Usuario | null> {

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line, Cell,
+  LineChart, Line, Cell, AreaChart, Area,
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
@@ -22,7 +22,8 @@ const ICON: Record<Categoria, any> = {
   casos: FileText, comms: Mail, tecnico: Wrench, permisos: KeyRound,
   escal: ArrowUpRight, reunion: Users, interna: Settings2,
 };
-const hoy = () => new Date().toISOString().slice(0, 10);
+// "Hoy" SIEMPRE en hora de Colombia (con UTC, a las 7 p.m. saltaba al día siguiente).
+const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 const todayISO = hoy;
 const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño" };
 const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio" };
@@ -53,6 +54,46 @@ function Stat({ icon: Ico, value, label, color, pct, delta, deltaDir }: any) {
     </div>
   );
 }
+// Efectividad/productividad diarias: área con degradado para rangos,
+// barras cuando hay 1-2 días (las líneas quedaban como puntos sueltos).
+function EfProdChart({ data: rows, height = 220 }: { data: any[]; height?: number }) {
+  const ejes = (
+    <>
+      <CartesianGrid vertical={false} stroke="#EEF1F6" />
+      <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+      <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "%" : "—")} />
+    </>
+  );
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      {rows.length <= 2 ? (
+        <BarChart data={rows} margin={{ left: -18 }}>
+          {ejes}
+          <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[6, 6, 0, 0]} maxBarSize={64} />
+          <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[6, 6, 0, 0]} maxBarSize={64} />
+        </BarChart>
+      ) : (
+        <AreaChart data={rows} margin={{ left: -18 }}>
+          <defs>
+            <linearGradient id="gradEf" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0098D6" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#0098D6" stopOpacity={0.02} />
+            </linearGradient>
+            <linearGradient id="gradProd" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6D5AE6" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#6D5AE6" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          {ejes}
+          <Area type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} fill="url(#gradEf)" dot={false} activeDot={{ r: 5 }} />
+          <Area type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} fill="url(#gradProd)" dot={false} activeDot={{ r: 5 }} />
+        </AreaChart>
+      )}
+    </ResponsiveContainer>
+  );
+}
+
 // Delta vs periodo anterior. invert=true cuando subir es MALO (ej. alertas).
 function calcDelta(cur: number | null | undefined, prev: number | null | undefined, unit = "", invert = false) {
   if (cur == null || prev == null) return {};
@@ -648,7 +689,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 }
 
 /* ════════════════ utilidades de rango y exportación ════════════════ */
-const isoHace = (dias: number) => { const d = new Date(); d.setDate(d.getDate() - dias); return d.toISOString().slice(0, 10); };
+// Resta días partiendo del "hoy" de Colombia (no del reloj UTC).
+const isoHace = (dias: number) => { const d = new Date(hoy() + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - dias); return d.toISOString().slice(0, 10); };
 const fmtFecha = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
 const horas = (min: number) => (min / 60).toFixed(1) + "h";
 
@@ -872,17 +914,8 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
             <div className="h2 mb4">Efectividad y productividad diarias</div>
             <div className="sub small mb10">Los mismos indicadores del encabezado, día a día: casos gestionados sobre asignados, y tiempo registrado sobre el disponible del turno.</div>
             <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={tline} margin={{ left: -18 }}>
-                <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => v != null ? v + "%" : "—"} />
-                <Line type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
-                <Line type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
-              </LineChart>
-            </ResponsiveContainer>
-            <div className="sub tiny mt6">Los días sin asignaciones o sin horario cargado quedan como huecos en la línea — no puntúan ni a favor ni en contra.</div>
+            <EfProdChart data={tline} />
+            <div className="sub tiny mt6">Los días sin asignaciones o sin horario cargado no puntúan ni a favor ni en contra.</div>
           </div>
 
           <div className="grid two mt15">
@@ -1047,21 +1080,12 @@ function ResumenView() {
             </div>
           )}
 
-          {tline.length > 1 && (
+          {tline.length > 0 && (
             <div className="card mt15">
               <div className="h2 mb4">Evolución del periodo</div>
               <div className="sub small mb10">Efectividad y productividad diarias.</div>
               <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={tline} margin={{ left: -18 }}>
-                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                  <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} formatter={(v: any) => (v != null ? v + "%" : "—")} />
-                  <Line type="monotone" dataKey="efectividad" name="Efectividad" stroke="#0098D6" strokeWidth={2.5} dot={{ r: 2, fill: "#0098D6" }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="productividad" name="Productividad" stroke="#6D5AE6" strokeWidth={2.5} dot={{ r: 2, fill: "#6D5AE6" }} activeDot={{ r: 5 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <EfProdChart data={tline} height={200} />
             </div>
           )}
 
