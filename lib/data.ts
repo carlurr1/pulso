@@ -548,6 +548,12 @@ export async function desactivarAnuncio(id: string) {
   const { error } = await sb.from("anuncios").update({ activo: false }).eq("id", id);
   if (error) throw error;
 }
+// Borra el anuncio y sus confirmaciones (cascade). Solo privilegiados (RLS).
+export async function borrarAnuncio(id: string) {
+  const sb = createClient();
+  const { error } = await sb.from("anuncios").delete().eq("id", id);
+  if (error) throw error;
+}
 // Anuncios activos que YO aún no he confirmado (para la ventana bloqueante).
 // Solo los de mi mesa o los de toda la operación (mesa null).
 export async function getAnunciosPendientes(userId: string, miMesa?: string | null) {

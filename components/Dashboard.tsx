@@ -2214,6 +2214,10 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
     finally { setBusy(false); }
   };
   const retirar = async (id: string) => { await data.desactivarAnuncio(id).catch(() => {}); cargar(); };
+  const borrar = async (id: string) => {
+    if (!confirm("¿Eliminar este anuncio y sus confirmaciones? No se puede deshacer.")) return;
+    await data.borrarAnuncio(id).catch(() => {}); cargar();
+  };
   const hh = (iso: string) => new Date(iso).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
   return (
@@ -2269,6 +2273,7 @@ function AnunciosPanel({ perfil }: { perfil: Usuario }) {
                   {abierto === a.id ? "Ocultar" : "Ver confirmaciones"}
                 </button>
                 {a.activo && <button className="btn ghost sm" onClick={() => retirar(a.id)}>Retirar</button>}
+                <button className="btn ghost sm" style={{ color: "var(--danger)" }} onClick={() => borrar(a.id)}>Eliminar</button>
               </div>
             </div>
           ))}
