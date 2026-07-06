@@ -458,7 +458,11 @@ export async function getMiHorarioHoy(userId: string) {
 }
 export async function getHorariosSemana(desde: string, hasta: string) {
   const sb = createClient();
-  const { data } = await sb.from("horarios").select("*, usuarios(nombre, apellido, cargo)").gte("fecha", desde).lte("fecha", hasta).order("fecha");
+  // Trae la mesa de la persona para poder filtrar por segmento/grupo en la vista.
+  // RLS limita las filas según el rol (agente→suyo, senior→su grupo, priv→todos).
+  const { data } = await sb.from("horarios")
+    .select("*, usuarios(nombre, apellido, cargo, mesa)")
+    .gte("fecha", desde).lte("fecha", hasta).order("fecha");
   return data ?? [];
 }
 
