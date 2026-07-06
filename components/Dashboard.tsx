@@ -1876,8 +1876,8 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula
   const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
     const c = l.split(/\t|,|;/).map((x) => x.trim());
-    return { login: c[0], nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
-  }).filter((r) => r.login);
+    return { login: c[0] ?? "", nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
+  }).filter((r) => r.nombre || r.login);   // basta con nombre; el usuario puede autogenerarse
   const filasMasivo = parseMasivo(pegado);
   const cargarMasivo = async () => {
     if (!filasMasivo.length) { fire("Pega al menos una fila."); return; }
@@ -2008,6 +2008,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               </div>
               <div className="sub tiny mono mb10" style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 8 }}>
                 Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula
+              </div>
+              <div className="sub tiny mb10">
+                <b>Usuario</b> puedes dejarlo vacío: se genera solo (inicial del nombre + apellido, ej. Juan Echeverri → JECHEVERRI).
+                El <b>Código/Cédula</b> es lo que cruza con el Excel de horarios.
               </div>
               <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456"} onChange={(e) => setPegado(e.target.value)} />
               {filasMasivo.length > 0 && <div className="sub small mt6">{filasMasivo.length} fila(s) detectada(s). La contraseña temporal será <b>Cos2026*</b> (la cambian al entrar).</div>}
