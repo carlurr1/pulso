@@ -2440,13 +2440,124 @@ function HorarioSemana() {
   );
 }
 
+/* ════════════════ HORARIOS (todos los roles) ════════════════ */
+function HorariosView({ perfil }: { perfil: Usuario }) {
+  const [monday, setMonday] = useState(_mondayActual());
+  const [filas, setFilas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mesa, setMesa] = useState("");
+  const [turno, setTurno] = useState("");
+  const soloYo = perfil.rol === "agente";
+  const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+
+  useEffect(() => {
+    setLoading(true);
+    data.getHorariosSemana(monday, _addDays(monday, 6)).then((d) => { setFilas(d); setLoading(false); }).catch(() => setLoading(false));
+  }, [monday]);
+
+  // Turnos distintos presentes (para el filtro por turno).
+  const turnos = useMemo(() => [...new Set(filas.map((h: any) => h.turno).filter(Boolean))].sort(), [filas]);
+
+  const personas = useMemo(() => {
+    const map = new Map<string, any>();
+    filas.forEach((h: any) => {
+      if (mesa && (h.usuarios?.mesa !== mesa)) return;   // filtro por mesa exacta (priv)
+      if (turno && h.turno !== turno) return;
+      const id = h.user_id;
+      if (!map.has(id)) map.set(id, { nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", mesa: h.usuarios?.mesa ?? "", dias: {} as any });
+      const d = (new Date(h.fecha + "T12:00:00").getDay() + 6) % 7;
+      map.get(id).dias[d] = h;
+    });
+    return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [filas, mesa, turno]);
+
+  const semLabel = `${fmtFecha(monday)} → ${fmtFecha(_addDays(monday, 6))}`;
+  const titulo = soloYo ? "Mi horario semanal" : perfil.rol === "senior" ? "Horarios de tu grupo" : "Horarios de la operación";
+
+  // Vista personal (agente): tarjetas por día, más amable que una tabla de una fila.
+  if (soloYo) {
+    const mios: Record<number, any> = {};
+    filas.forEach((h: any) => { if (h.user_id === perfil.id) mios[(new Date(h.fecha + "T12:00:00").getDay() + 6) % 7] = h; });
+    return (
+      <div>
+        <div className="row-between end">
+          <div><div className="eyebrow">Mi turno · {perfil.mesa ? mesaLabel(perfil.mesa) : "Help Desk"}</div><div className="h1">{titulo}</div></div>
+          <input type="date" className="inp dateinp" value={monday} onChange={(e) => { const d = new Date(e.target.value + "T12:00:00"); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); setMonday(d.toISOString().slice(0, 10)); }} />
+        </div>
+        <div className="sub small mt3">Semana: {semLabel}</div>
+        {loading ? <div className="card mt20"><div className="empty">Cargando…</div></div> : (
+          <div className="grid diasgrid mt16">
+            {DIAS.map((dl, d) => {
+              const h = mios[d]; const fecha = _addDays(monday, d);
+              return (
+                <div key={d} className={"diacard" + (h ? "" : " descanso")}>
+                  <div className="diacard-d">{dl} <span className="faint">{new Date(fecha + "T12:00:00").getDate()}</span></div>
+                  {h ? <>
+                    <div className="diacard-turno">{h.turno ?? "—"}</div>
+                    <div className="sub tiny">{h.disponible_min ? (h.disponible_min / 60).toFixed(1) + "h disponibles" : ""}</div>
+                  </> : <div className="sub tiny mt6">Descanso</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Vista senior / coordinador / admin: grid semanal con filtros.
+  return (
+    <div>
+      <div className="row-between end">
+        <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">{titulo}</div></div>
+        <div className="toolbar">
+          {priv && <MesaSelector mesa={mesa} setMesa={setMesa} />}
+          {turnos.length > 1 && (
+            <select className="inp dateinp" value={turno} onChange={(e) => setTurno(e.target.value)}>
+              <option value="">Todos los turnos</option>
+              {turnos.map((t: any) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          <input type="date" className="inp dateinp" value={monday} onChange={(e) => { const d = new Date(e.target.value + "T12:00:00"); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); setMonday(d.toISOString().slice(0, 10)); }} />
+        </div>
+      </div>
+      <div className="sub small mt3">Semana: {semLabel} · <b>{personas.length}</b> persona(s)</div>
+
+      <div className="card nopad mt15">
+        <div className="tblscroll">
+          {loading ? <div className="empty pad24">Cargando…</div> : personas.length === 0 ? <div className="empty pad24">No hay horarios cargados para esta semana{mesa || turno ? " con ese filtro" : ""}.</div> :
+            <table className="tbl horsem">
+              <thead><tr><th className="stickyc">Persona</th>{priv && !mesa && <th>Mesa</th>}{DIAS.map((d, i) => <th key={i} className="diacol">{d}<br /><span className="faint tiny">{new Date(_addDays(monday, i) + "T12:00:00").getDate()}</span></th>)}</tr></thead>
+              <tbody>
+                {personas.map((p, i) => (
+                  <tr key={i}>
+                    <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}</div></td>
+                    {priv && !mesa && <td><span className="chip bajo s11">{p.mesa ? mesaLabel(p.mesa) : "—"}</span></td>}
+                    {DIAS.map((_, d) => {
+                      const h = p.dias[d];
+                      return <td key={d} className="diacell">{h ? <span className="turnopill">{h.turno ?? ((h.disponible_min / 60).toFixed(1) + "h")}</span> : <span className="descanso">—</span>}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════ SHELL ════════════════ */
 type NavItem = { key: string; label: string; icon: any };
 const NAV: Record<Rol, NavItem[]> = {
-  agente: [{ key: "bandeja", label: "Mi bandeja", icon: Inbox }],
+  agente: [
+    { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+    { key: "horario", label: "Mi horario", icon: CalendarRange },
+  ],
   senior: [
     { key: "repartir", label: "Repartir seguimiento", icon: CalendarRange },
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+    { key: "horario", label: "Horarios del grupo", icon: Clock },
   ],
   coordinador: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
@@ -2454,6 +2565,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
+    { key: "horario", label: "Horarios", icon: Clock },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
@@ -2462,6 +2574,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
+    { key: "horario", label: "Horarios", icon: Clock },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
   ],
@@ -2772,20 +2885,24 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         </header>
 
         <div className="content">
-          {vista === "agente" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
+          {vista === "agente" && section === "horario" && <HorariosView perfil={perfil} />}
+          {vista === "agente" && section !== "horario" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
+          {vista === "senior" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
+          {vista === "coordinador" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
+          {vista === "superadmin" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
