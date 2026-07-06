@@ -403,18 +403,25 @@ export async function gTopCasos(desde: string, hasta: string, user?: string | nu
 }
 
 // ── Presencia / sesiones ──────────────────────────────────────────
+// SESIÓN ÚNICA: al abrir Pulso se cierran las demás sesiones abiertas
+// del mismo usuario (otra pestaña/equipo). La sesión desplazada lo
+// detecta en su siguiente latido y muestra la pantalla de bloqueo.
 export async function iniciarSesion(): Promise<string | null> {
   const sb = createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
+  await sb.from("sesiones").update({ fin: new Date().toISOString() })
+    .eq("user_id", user.id).is("fin", null);
   const { data } = await sb.from("sesiones").insert({ user_id: user.id }).select("id").single();
   return data?.id ?? null;
 }
-export async function latido(id: string, activoSeg?: number) {
+// Devuelve false si esta sesión fue cerrada por otra apertura (desplazada).
+export async function latido(id: string, activoSeg?: number): Promise<boolean> {
   const sb = createClient();
   const upd: Record<string, unknown> = { ultimo_latido: new Date().toISOString() };
   if (typeof activoSeg === "number") upd.activo_seg = activoSeg;
-  await sb.from("sesiones").update(upd).eq("id", id);
+  const { data } = await sb.from("sesiones").update(upd).eq("id", id).is("fin", null).select("id");
+  return (data ?? []).length > 0;
 }
 export async function cerrarSesion(id: string) {
   const sb = createClient();
@@ -423,6 +430,14 @@ export async function cerrarSesion(id: string) {
 export async function getPresencia(mesa?: string | null) {
   const sb = createClient();
   const { data } = await sb.rpc("presencia_hoy", { p_mesa: mesa || null });
+  return data ?? [];
+}
+// Carga de casos por persona (coordinador: toda la operación con filtro
+// de mesa; senior: siempre su grupo — lo decide la base).
+export async function cargaEquipo(desde: string, hasta: string, mesa?: string | null) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("carga_equipo", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
   return data ?? [];
 }
 
