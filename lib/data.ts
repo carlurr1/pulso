@@ -432,6 +432,13 @@ export async function getPresencia(mesa?: string | null) {
   const { data } = await sb.rpc("presencia_hoy", { p_mesa: mesa || null });
   return data ?? [];
 }
+// Perfil de una persona en un día (horario + casos + gestión).
+export async function perfilDia(userId: string, fecha = hoy()) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("perfil_dia", { p_user: userId, p_fecha: fecha });
+  if (error) throw new Error(error.message);
+  return data as any;
+}
 // Carga de casos por persona (coordinador: toda la operación con filtro
 // de mesa; senior: siempre su grupo — lo decide la base).
 export async function cargaEquipo(desde: string, hasta: string, mesa?: string | null) {

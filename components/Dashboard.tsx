@@ -2299,6 +2299,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [mesa]);
   const inasistente = (userId: string) => inasistencias.find((x) => x.user_id === userId);
   const privPres = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+  const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
   const enLinea = filas.filter((f) => f.en_linea).length;
 
   const enviar = async () => {
@@ -2344,7 +2345,11 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
             {loading && <tr><td colSpan={8}><div className="empty">Cargando…</div></td></tr>}
             {!loading && filas.map((f) => (
               <tr key={f.user_id}>
-                <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
+                <td className="bold nameCell">
+                  <button className="linkperson" onClick={() => setPerfilUser({ id: f.user_id, nombre: firstLast(f.nombre, f.apellido) })} title="Ver perfil del día">
+                    <span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}
+                  </button>
+                </td>
                 <td className="s12">{f.cargo}</td>
                 <td>
                   {f.pausa_tipo ? (
@@ -2386,8 +2391,64 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
           </div>
         </div>
       )}
+      {perfilUser && <PerfilPersona user={perfilUser} onClose={() => setPerfilUser(null)} />}
     </div>
     </>
+  );
+}
+
+/* ── Perfil de una persona (modal): horario, casos y gestión del día ── */
+function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }; onClose: () => void }) {
+  const [d, setD] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { data.perfilDia(user.id).then((r) => { setD(r); setLoading(false); }).catch(() => setLoading(false)); }, [user.id]);
+  const hh = (iso: string) => new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const casos = d?.casos ?? []; const gest = d?.gestiones ?? [];
+  const pend = casos.filter((c: any) => c.estado !== "gestionado").length;
+  const hechos = casos.length - pend;
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+        <div className="modalHead">
+          <div>
+            <div className="h2">{user.nombre}</div>
+            {d?.usuario && <div className="sub small mt3">{d.usuario.cargo}{d.usuario.mesa ? " · " + mesaLabel(d.usuario.mesa) : ""}{d.horario?.turno ? " · Turno " + d.horario.turno : ""}</div>}
+          </div>
+          <button className="xbtn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="modalBody">
+          {loading ? <div className="empty pad24">Cargando…</div> : !d ? <div className="empty pad24">Sin datos.</div> : (
+            <>
+              <div className="grid three mb14">
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--danger)" }}>{pend}</div><div className="statLbl">Por gestionar</div></div>
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--ok)" }}>{hechos}</div><div className="statLbl">Cerrados hoy</div></div>
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--primary)" }}>{horas(d.resumen?.minutos ?? 0)}</div><div className="statLbl">{d.resumen?.gestiones ?? 0} gestiones</div></div>
+              </div>
+              <div className="h2 mb6" style={{ fontSize: 14 }}>Casos del día</div>
+              {casos.length === 0 ? <div className="sub small mb14">Sin casos asignados hoy.</div> :
+                <div className="col9 mb14">
+                  {casos.map((c: any, i: number) => (
+                    <div key={i} className="row-between" style={{ padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span className="s12"><b className="mono">#{c.numero_caso.replace(/^(EXT|REU)-/, "")}</b>{c.cliente && <span className="faint"> · {c.cliente}</span>}</span>
+                      <span className={"chip " + (ESTADO_META[c.estado]?.chip ?? "sin")}>{ESTADO_META[c.estado]?.label ?? c.estado}</span>
+                    </div>
+                  ))}
+                </div>}
+              <div className="h2 mb6" style={{ fontSize: 14 }}>Gestiones registradas</div>
+              {gest.length === 0 ? <div className="sub small">Sin gestiones registradas hoy.</div> :
+                <div className="col9">
+                  {gest.map((g: any, i: number) => (
+                    <div key={i} className="row-between" style={{ padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span className="s12">{g.tipo ?? "—"} <span className="faint mono">#{g.numero_caso.replace(/^(EXT|REU)-/, "")}</span></span>
+                      <span className="mono soft s12">{g.minutos}m · {hh(g.registrado_at)}</span>
+                    </div>
+                  ))}
+                </div>}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
