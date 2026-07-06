@@ -25,8 +25,8 @@ const ICON: Record<Categoria, any> = {
 // "Hoy" SIEMPRE en hora de Colombia (con UTC, a las 7 p.m. saltaba al día siguiente).
 const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 const todayISO = hoy;
-const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño" };
-const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio" };
+const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño", backoffice: "Backoffice" };
+const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio", backoffice: "medio" };
 const initials = (u: { nombre: string; apellido?: string | null }) =>
   (u.nombre[0] + (u.apellido?.[0] ?? "")).toUpperCase();
 const firstLast = (n: string, a?: string | null) => `${n} ${(a ?? "").split(" ")[0]}`.trim();
@@ -325,6 +325,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Break</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Almuerzo</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("bano")}>Baño</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("backoffice")}>Backoffice</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("reunion")}>Reunión interna</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("capacitacion")}>Capacitación</button>
             </>
@@ -2607,14 +2608,14 @@ function CargaView({ perfil }: { perfil: Usuario }) {
             <div className="h2 mb4">Comparativo de cargas</div>
             <div className="sub small mb10">Casos asignados vs gestionados por persona — para repartir parejo. La línea punteada es el promedio de asignación.</div>
             <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Asignados</span><span className="legdot"><i style={{ background: "#26B07A" }} />Gestionados</span></div>
-            <ResponsiveContainer width="100%" height={Math.max(200, 40 + chart.length * 15)}>
-              <BarChart data={chart} margin={{ left: -14 }}>
-                <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                <XAxis dataKey="nombre" tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} angle={chart.length > 8 ? -28 : 0} height={chart.length > 8 ? 55 : 30} textAnchor={chart.length > 8 ? "end" : "middle"} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+            <ResponsiveContainer width="100%" height={Math.max(180, 40 + chart.length * 42)}>
+              <BarChart data={chart} layout="vertical" margin={{ left: 8, right: 16 }} barGap={2}>
+                <CartesianGrid horizontal={false} stroke="#EEF1F6" />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                <Bar dataKey="asignados" name="Asignados" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="gestionados" name="Gestionados" fill="#26B07A" radius={[5, 5, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="asignados" name="Asignados" fill="#0098D6" radius={[0, 4, 4, 0]} maxBarSize={13} />
+                <Bar dataKey="gestionados" name="Gestionados" fill="#26B07A" radius={[0, 4, 4, 0]} maxBarSize={13} />
               </BarChart>
             </ResponsiveContainer>
           </div>
