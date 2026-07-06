@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
+import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
 import { pushUsuarios, pushEquipo } from "@/app/push";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
@@ -1864,8 +1864,31 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [mesas, setMesas] = useState<any[]>([]);
   const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" });
+  const [masivo, setMasivo] = useState(false);
+  const [pegado, setPegado] = useState("");
+  const [resMasivo, setResMasivo] = useState<any[] | null>(null);
   const reload = () => data.getUsuarios().then(setUsers);
   useEffect(() => { reload(); data.getMesas().then(setMesas).catch(() => {}); }, []);
+
+  // Carga masiva: pega filas separadas por TAB (desde Excel) o coma.
+  // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula
+  const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const c = l.split(/\t|,|;/).map((x) => x.trim());
+    return { login: c[0], nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
+  }).filter((r) => r.login);
+  const filasMasivo = parseMasivo(pegado);
+  const cargarMasivo = async () => {
+    if (!filasMasivo.length) { fire("Pega al menos una fila."); return; }
+    setBusy(true); setResMasivo(null);
+    try {
+      const r = await crearUsuariosMasivo(filasMasivo);
+      if (!r.ok) { fire(r.error ?? "No se pudo cargar."); return; }
+      setResMasivo(r.resultados ?? []);
+      const ok = (r.resultados ?? []).filter((x) => x.ok).length;
+      fire(`${ok} de ${filasMasivo.length} usuarios creados`); reload();
+    } catch (e: any) { fire("Error: " + (e?.message ?? "")); }
+    finally { setBusy(false); }
+  };
 
   const add = async () => {
     if (!f.nombre.trim() || !f.login.trim()) { fire("Escribe al menos nombre y usuario."); return; }
@@ -1906,7 +1929,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
       <div className="card nopad">
         <div className="tblhead">
           <div><div className="h2">Usuarios del equipo</div><div className="sub small">Crea accesos, edita rol/cargo/código, resetea claves y bloquea accesos. Las contraseñas se guardan cifradas — nadie las ve, ni tú.</div></div>
-          <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
+          <div className="gap9">
+            <button className="btn ghost" onClick={() => { setMasivo(true); setResMasivo(null); }}><Upload size={15} />Carga masiva</button>
+            <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
+          </div>
         </div>
         <div className="tblscroll">
           <table className="tbl">
@@ -1965,6 +1991,39 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios. La <b>mesa</b> define su contenedor: bandeja, compañeros y métricas.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {masivo && (
+        <div className="overlay" onClick={() => setMasivo(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+            <div className="modalHead"><div className="h2">Carga masiva de usuarios</div><button className="xbtn" onClick={() => setMasivo(false)}><X size={16} /></button></div>
+            <div className="modalBody">
+              <div className="sub small mb10">
+                Copia las filas desde tu Excel y pégalas aquí. Una persona por línea, columnas en este orden
+                (separadas por tabulación o coma):
+              </div>
+              <div className="sub tiny mono mb10" style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 8 }}>
+                Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula
+              </div>
+              <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456"} onChange={(e) => setPegado(e.target.value)} />
+              {filasMasivo.length > 0 && <div className="sub small mt6">{filasMasivo.length} fila(s) detectada(s). La contraseña temporal será <b>Cos2026*</b> (la cambian al entrar).</div>}
+              {resMasivo && (
+                <div className="mt12" style={{ maxHeight: 200, overflow: "auto" }}>
+                  {resMasivo.map((r, i) => (
+                    <div key={i} className="sub small" style={{ padding: "3px 0" }}>
+                      {r.ok ? <span className="chip done s11">OK</span> : <span className="chip alto s11">Error</span>}{" "}
+                      <b className="mono">{r.login}</b>{r.error && <span className="faint"> — {r.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modalFoot">
+              <button className="btn ghost" onClick={() => setMasivo(false)}>Cerrar</button>
+              <button className="btn primary" disabled={busy || !filasMasivo.length} onClick={cargarMasivo}>{busy ? "Cargando…" : `Crear ${filasMasivo.length || ""} usuario(s)`}</button>
+            </div>
           </div>
         </div>
       )}
