@@ -2298,6 +2298,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   };
   useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [mesa]);
   const inasistente = (userId: string) => inasistencias.find((x) => x.user_id === userId);
+  const privPres = perfil.rol === "coordinador" || perfil.rol === "superadmin";
   const enLinea = filas.filter((f) => f.en_linea).length;
 
   const enviar = async () => {
@@ -2314,7 +2315,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
 
   return (
     <>
-    <AnunciosPanel perfil={perfil} />
+    {privPres && <AnunciosPanel perfil={perfil} />}
     {inasistencias.length > 0 && (
       <div className="card mb14" style={{ borderLeft: "4px solid var(--danger)" }}>
         <div className="h2 mb4"><AlertTriangle size={16} style={{ verticalAlign: "-3px" }} /> Inasistencia digital detectada</div>
@@ -2331,7 +2332,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
       <div className="tblhead">
         <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y sus pausas. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
         <div className="gap9">
-          <MesaSelector mesa={mesa} setMesa={setMesa} />
+          {privPres && <MesaSelector mesa={mesa} setMesa={setMesa} />}
           <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
         </div>
       </div>
@@ -2436,6 +2437,94 @@ function HorarioSemana() {
             </tbody>
           </table>}
       </div>
+    </div>
+  );
+}
+
+/* ════════════════ CARGA DE CASOS (senior y coordinación) ════════════════ */
+function CargaView({ perfil }: { perfil: Usuario }) {
+  const [desde, setDesde] = useState(todayISO());
+  const [hasta, setHasta] = useState(todayISO());
+  const [mesa, setMesa] = useState("");
+  const [filas, setFilas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+
+  useEffect(() => {
+    let vivo = true;
+    setLoading(true);
+    data.cargaEquipo(desde, hasta, priv ? (mesa || null) : null)
+      .then((d) => { if (vivo) { setFilas(d); setLoading(false); } })
+      .catch(() => { if (vivo) setLoading(false); });
+    return () => { vivo = false; };
+    /* eslint-disable-next-line */
+  }, [desde, hasta, mesa]);
+
+  const activos = filas.filter((f: any) => f.asignados > 0 || f.minutos > 0);
+  const totalAsig = activos.reduce((s: number, f: any) => s + f.asignados, 0);
+  const promedio = activos.length ? totalAsig / activos.length : 0;
+  const chart = activos.map((f: any) => ({
+    nombre: firstLast(f.nombre, f.apellido),
+    asignados: f.asignados, gestionados: f.gestionados,
+  }));
+
+  return (
+    <div>
+      <div className="row-between end">
+        <div><div className="eyebrow">{priv ? "Coordinación · Help Desk" : "Senior · tu grupo"}</div><div className="h1">Carga de casos</div></div>
+        <div className="toolbar">
+          {priv && <MesaSelector mesa={mesa} setMesa={setMesa} />}
+          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+        </div>
+      </div>
+      <div className="sub small mt3">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)} · {activos.length} persona(s) con carga · promedio <b>{promedio.toFixed(1)}</b> casos asignados por persona</div>
+
+      {loading ? <div className="card mt20"><div className="empty">Cargando…</div></div> : activos.length === 0 ? (
+        <div className="card mt20"><div className="empty">Sin casos asignados en el periodo.</div></div>
+      ) : (
+        <>
+          <div className="card mt15">
+            <div className="h2 mb4">Comparativo de cargas</div>
+            <div className="sub small mb10">Casos asignados vs gestionados por persona — para repartir parejo. La línea punteada es el promedio de asignación.</div>
+            <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Asignados</span><span className="legdot"><i style={{ background: "#26B07A" }} />Gestionados</span></div>
+            <ResponsiveContainer width="100%" height={Math.max(200, 40 + chart.length * 15)}>
+              <BarChart data={chart} margin={{ left: -14 }}>
+                <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                <XAxis dataKey="nombre" tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} angle={chart.length > 8 ? -28 : 0} height={chart.length > 8 ? 55 : 30} textAnchor={chart.length > 8 ? "end" : "middle"} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                <Bar dataKey="asignados" name="Asignados" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="gestionados" name="Gestionados" fill="#26B07A" radius={[5, 5, 0, 0]} maxBarSize={26} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="card nopad mt15">
+            <div className="tblscroll">
+              <table className="tbl">
+                <thead><tr><th>Persona</th><th>Cargo</th>{priv && !mesa && <th>Mesa</th>}<th>Asignados</th><th>Gestionados</th><th>Pendientes</th><th>Avance</th><th>Tiempo</th></tr></thead>
+                <tbody>
+                  {activos.map((f: any) => {
+                    const pct = f.asignados ? Math.round((f.gestionados / f.asignados) * 100) : null;
+                    return (
+                      <tr key={f.user_id}>
+                        <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{firstLast(f.nombre, f.apellido)}</td>
+                        <td className="s12">{f.cargo}</td>
+                        {priv && !mesa && <td><span className="chip bajo s11">{f.mesa ? mesaLabel(f.mesa) : "—"}</span></td>}
+                        <td className="mono bold">{f.asignados}</td>
+                        <td className="mono">{f.gestionados}</td>
+                        <td>{f.pendientes > 0 ? <span className="chip pend">{f.pendientes}</span> : <span className="faint">0</span>}</td>
+                        <td>{pct != null ? <span className={"chip " + (pct >= 80 ? "done" : pct >= 50 ? "medio" : "alto")}>{pct}%</span> : <span className="faint">—</span>}</td>
+                        <td className="mono">{horas(f.minutos)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2557,12 +2646,15 @@ const NAV: Record<Rol, NavItem[]> = {
   senior: [
     { key: "repartir", label: "Repartir seguimiento", icon: CalendarRange },
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+    { key: "carga", label: "Carga del equipo", icon: TrendingUp },
+    { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "horario", label: "Horarios del grupo", icon: Clock },
   ],
   coordinador: [
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
+    { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
@@ -2572,6 +2664,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
+    { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
@@ -2588,6 +2681,10 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [alertaIn, setAlertaIn] = useState<any>(null);
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
+
+  // Sesión única: si el usuario abre Pulso en otra pestaña/equipo, esta
+  // sesión queda desplazada y se bloquea la pantalla.
+  const [sesionDup, setSesionDup] = useState(false);
 
   // Candado del permiso de Idle Detection para roles operativos: si el permiso
   // está en 'prompt' o 'denied', la app queda bloqueada hasta concederlo.
@@ -2626,7 +2723,9 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     };
     const beat = () => {
       if (idleDetector) marcarActivo(idleDetector.userState === "active" && idleDetector.screenState !== "locked");
-      if (id) data.latido(id, Math.floor(activoAhora() / 1000)).catch(() => {});
+      if (id) data.latido(id, Math.floor(activoAhora() / 1000))
+        .then((viva) => { if (!viva) setSesionDup(true); })   // otra apertura me desplazó
+        .catch(() => {});
     };
 
     const iniciarDetector = async () => {
@@ -2889,10 +2988,13 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "agente" && section !== "horario" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
+          {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
+          {vista === "senior" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "senior" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
+          {vista === "coordinador" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
           {vista === "coordinador" && section === "horario" && <HorariosView perfil={perfil} />}
@@ -2900,6 +3002,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
+          {vista === "superadmin" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
           {vista === "superadmin" && section === "horario" && <HorariosView perfil={perfil} />}
@@ -2908,6 +3011,20 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         </div>
       </div>
       {toast && <div className="toast"><Check size={16} color="#2BD0C3" />{toast}</div>}
+      {sesionDup && (
+        <div className="overlay alta" style={{ zIndex: 400 }}>
+          <div className="alertcard">
+            <div className="alertico" style={{ animation: "none" }}><ShieldCheck size={30} /></div>
+            <div className="gatetitle">Tu cuenta se abrió en otro lugar</div>
+            <div className="gatemsg">
+              Pulso solo permite una sesión activa por persona. Esta pantalla quedó inactiva porque
+              tu usuario inició sesión en otra pestaña o en otro equipo. Si no fuiste tú, avísale a tu
+              coordinador y cambia tu contraseña.
+            </div>
+            <button className="btn primary block" onClick={() => logout()}>Cerrar esta sesión</button>
+          </div>
+        </div>
+      )}
       {idleGate && (
         <div className="overlay alta gate">
           <div className="alertcard">
