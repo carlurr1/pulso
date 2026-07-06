@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
+import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
 import { pushUsuarios, pushEquipo } from "@/app/push";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
@@ -25,8 +25,8 @@ const ICON: Record<Categoria, any> = {
 // "Hoy" SIEMPRE en hora de Colombia (con UTC, a las 7 p.m. saltaba al día siguiente).
 const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 const todayISO = hoy;
-const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño" };
-const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio" };
+const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño", backoffice: "Backoffice" };
+const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio", backoffice: "medio" };
 const initials = (u: { nombre: string; apellido?: string | null }) =>
   (u.nombre[0] + (u.apellido?.[0] ?? "")).toUpperCase();
 const firstLast = (n: string, a?: string | null) => `${n} ${(a ?? "").split(" ")[0]}`.trim();
@@ -325,6 +325,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("break")}>Break</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("almuerzo")}>Almuerzo</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("bano")}>Baño</button>
+              <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("backoffice")}>Backoffice</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("reunion")}>Reunión interna</button>
               <button className="btn ghost sm" disabled={pausaBusy} onClick={() => salir("capacitacion")}>Capacitación</button>
             </>
@@ -1864,8 +1865,31 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [mesas, setMesas] = useState<any[]>([]);
   const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" });
+  const [masivo, setMasivo] = useState(false);
+  const [pegado, setPegado] = useState("");
+  const [resMasivo, setResMasivo] = useState<any[] | null>(null);
   const reload = () => data.getUsuarios().then(setUsers);
   useEffect(() => { reload(); data.getMesas().then(setMesas).catch(() => {}); }, []);
+
+  // Carga masiva: pega filas separadas por TAB (desde Excel) o coma.
+  // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula
+  const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const c = l.split(/\t|,|;/).map((x) => x.trim());
+    return { login: c[0], nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
+  }).filter((r) => r.login);
+  const filasMasivo = parseMasivo(pegado);
+  const cargarMasivo = async () => {
+    if (!filasMasivo.length) { fire("Pega al menos una fila."); return; }
+    setBusy(true); setResMasivo(null);
+    try {
+      const r = await crearUsuariosMasivo(filasMasivo);
+      if (!r.ok) { fire(r.error ?? "No se pudo cargar."); return; }
+      setResMasivo(r.resultados ?? []);
+      const ok = (r.resultados ?? []).filter((x) => x.ok).length;
+      fire(`${ok} de ${filasMasivo.length} usuarios creados`); reload();
+    } catch (e: any) { fire("Error: " + (e?.message ?? "")); }
+    finally { setBusy(false); }
+  };
 
   const add = async () => {
     if (!f.nombre.trim() || !f.login.trim()) { fire("Escribe al menos nombre y usuario."); return; }
@@ -1906,7 +1930,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
       <div className="card nopad">
         <div className="tblhead">
           <div><div className="h2">Usuarios del equipo</div><div className="sub small">Crea accesos, edita rol/cargo/código, resetea claves y bloquea accesos. Las contraseñas se guardan cifradas — nadie las ve, ni tú.</div></div>
-          <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
+          <div className="gap9">
+            <button className="btn ghost" onClick={() => { setMasivo(true); setResMasivo(null); }}><Upload size={15} />Carga masiva</button>
+            <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
+          </div>
         </div>
         <div className="tblscroll">
           <table className="tbl">
@@ -1965,6 +1992,39 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios. La <b>mesa</b> define su contenedor: bandeja, compañeros y métricas.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {masivo && (
+        <div className="overlay" onClick={() => setMasivo(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+            <div className="modalHead"><div className="h2">Carga masiva de usuarios</div><button className="xbtn" onClick={() => setMasivo(false)}><X size={16} /></button></div>
+            <div className="modalBody">
+              <div className="sub small mb10">
+                Copia las filas desde tu Excel y pégalas aquí. Una persona por línea, columnas en este orden
+                (separadas por tabulación o coma):
+              </div>
+              <div className="sub tiny mono mb10" style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 8 }}>
+                Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula
+              </div>
+              <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456"} onChange={(e) => setPegado(e.target.value)} />
+              {filasMasivo.length > 0 && <div className="sub small mt6">{filasMasivo.length} fila(s) detectada(s). La contraseña temporal será <b>Cos2026*</b> (la cambian al entrar).</div>}
+              {resMasivo && (
+                <div className="mt12" style={{ maxHeight: 200, overflow: "auto" }}>
+                  {resMasivo.map((r, i) => (
+                    <div key={i} className="sub small" style={{ padding: "3px 0" }}>
+                      {r.ok ? <span className="chip done s11">OK</span> : <span className="chip alto s11">Error</span>}{" "}
+                      <b className="mono">{r.login}</b>{r.error && <span className="faint"> — {r.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modalFoot">
+              <button className="btn ghost" onClick={() => setMasivo(false)}>Cerrar</button>
+              <button className="btn primary" disabled={busy || !filasMasivo.length} onClick={cargarMasivo}>{busy ? "Cargando…" : `Crear ${filasMasivo.length || ""} usuario(s)`}</button>
+            </div>
           </div>
         </div>
       )}
@@ -2299,6 +2359,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, [mesa]);
   const inasistente = (userId: string) => inasistencias.find((x) => x.user_id === userId);
   const privPres = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+  const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
   const enLinea = filas.filter((f) => f.en_linea).length;
 
   const enviar = async () => {
@@ -2344,7 +2405,11 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
             {loading && <tr><td colSpan={8}><div className="empty">Cargando…</div></td></tr>}
             {!loading && filas.map((f) => (
               <tr key={f.user_id}>
-                <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}</td>
+                <td className="bold nameCell">
+                  <button className="linkperson" onClick={() => setPerfilUser({ id: f.user_id, nombre: firstLast(f.nombre, f.apellido) })} title="Ver perfil del día">
+                    <span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}
+                  </button>
+                </td>
                 <td className="s12">{f.cargo}</td>
                 <td>
                   {f.pausa_tipo ? (
@@ -2386,8 +2451,64 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
           </div>
         </div>
       )}
+      {perfilUser && <PerfilPersona user={perfilUser} onClose={() => setPerfilUser(null)} />}
     </div>
     </>
+  );
+}
+
+/* ── Perfil de una persona (modal): horario, casos y gestión del día ── */
+function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }; onClose: () => void }) {
+  const [d, setD] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { data.perfilDia(user.id).then((r) => { setD(r); setLoading(false); }).catch(() => setLoading(false)); }, [user.id]);
+  const hh = (iso: string) => new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const casos = d?.casos ?? []; const gest = d?.gestiones ?? [];
+  const pend = casos.filter((c: any) => c.estado !== "gestionado").length;
+  const hechos = casos.length - pend;
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+        <div className="modalHead">
+          <div>
+            <div className="h2">{user.nombre}</div>
+            {d?.usuario && <div className="sub small mt3">{d.usuario.cargo}{d.usuario.mesa ? " · " + mesaLabel(d.usuario.mesa) : ""}{d.horario?.turno ? " · Turno " + d.horario.turno : ""}</div>}
+          </div>
+          <button className="xbtn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="modalBody">
+          {loading ? <div className="empty pad24">Cargando…</div> : !d ? <div className="empty pad24">Sin datos.</div> : (
+            <>
+              <div className="grid three mb14">
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--danger)" }}>{pend}</div><div className="statLbl">Por gestionar</div></div>
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--ok)" }}>{hechos}</div><div className="statLbl">Cerrados hoy</div></div>
+                <div className="card tight"><div className="statVal sm" style={{ color: "var(--primary)" }}>{horas(d.resumen?.minutos ?? 0)}</div><div className="statLbl">{d.resumen?.gestiones ?? 0} gestiones</div></div>
+              </div>
+              <div className="h2 mb6" style={{ fontSize: 14 }}>Casos del día</div>
+              {casos.length === 0 ? <div className="sub small mb14">Sin casos asignados hoy.</div> :
+                <div className="col9 mb14">
+                  {casos.map((c: any, i: number) => (
+                    <div key={i} className="row-between" style={{ padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span className="s12"><b className="mono">#{c.numero_caso.replace(/^(EXT|REU)-/, "")}</b>{c.cliente && <span className="faint"> · {c.cliente}</span>}</span>
+                      <span className={"chip " + (ESTADO_META[c.estado]?.chip ?? "sin")}>{ESTADO_META[c.estado]?.label ?? c.estado}</span>
+                    </div>
+                  ))}
+                </div>}
+              <div className="h2 mb6" style={{ fontSize: 14 }}>Gestiones registradas</div>
+              {gest.length === 0 ? <div className="sub small">Sin gestiones registradas hoy.</div> :
+                <div className="col9">
+                  {gest.map((g: any, i: number) => (
+                    <div key={i} className="row-between" style={{ padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span className="s12">{g.tipo ?? "—"} <span className="faint mono">#{g.numero_caso.replace(/^(EXT|REU)-/, "")}</span></span>
+                      <span className="mono soft s12">{g.minutos}m · {hh(g.registrado_at)}</span>
+                    </div>
+                  ))}
+                </div>}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2487,14 +2608,14 @@ function CargaView({ perfil }: { perfil: Usuario }) {
             <div className="h2 mb4">Comparativo de cargas</div>
             <div className="sub small mb10">Casos asignados vs gestionados por persona — para repartir parejo. La línea punteada es el promedio de asignación.</div>
             <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Asignados</span><span className="legdot"><i style={{ background: "#26B07A" }} />Gestionados</span></div>
-            <ResponsiveContainer width="100%" height={Math.max(200, 40 + chart.length * 15)}>
-              <BarChart data={chart} margin={{ left: -14 }}>
-                <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                <XAxis dataKey="nombre" tick={{ fontSize: 10.5, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} angle={chart.length > 8 ? -28 : 0} height={chart.length > 8 ? 55 : 30} textAnchor={chart.length > 8 ? "end" : "middle"} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+            <ResponsiveContainer width="100%" height={Math.max(180, 40 + chart.length * 42)}>
+              <BarChart data={chart} layout="vertical" margin={{ left: 8, right: 16 }} barGap={2}>
+                <CartesianGrid horizontal={false} stroke="#EEF1F6" />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                <Bar dataKey="asignados" name="Asignados" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="gestionados" name="Gestionados" fill="#26B07A" radius={[5, 5, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="asignados" name="Asignados" fill="#0098D6" radius={[0, 4, 4, 0]} maxBarSize={13} />
+                <Bar dataKey="gestionados" name="Gestionados" fill="#26B07A" radius={[0, 4, 4, 0]} maxBarSize={13} />
               </BarChart>
             </ResponsiveContainer>
           </div>

@@ -432,6 +432,13 @@ export async function getPresencia(mesa?: string | null) {
   const { data } = await sb.rpc("presencia_hoy", { p_mesa: mesa || null });
   return data ?? [];
 }
+// Perfil de una persona en un día (horario + casos + gestión).
+export async function perfilDia(userId: string, fecha = hoy()) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("perfil_dia", { p_user: userId, p_fecha: fecha });
+  if (error) throw new Error(error.message);
+  return data as any;
+}
 // Carga de casos por persona (coordinador: toda la operación con filtro
 // de mesa; senior: siempre su grupo — lo decide la base).
 export async function cargaEquipo(desde: string, hasta: string, mesa?: string | null) {
@@ -447,7 +454,7 @@ export async function getPausaActiva(userId: string) {
   const { data } = await sb.from("pausas").select("*").eq("user_id", userId).eq("fecha", hoy()).is("fin", null).order("inicio", { ascending: false }).limit(1).maybeSingle();
   return data;
 }
-export type PausaTipo = "break" | "almuerzo" | "reunion" | "capacitacion" | "bano";
+export type PausaTipo = "break" | "almuerzo" | "reunion" | "capacitacion" | "bano" | "backoffice";
 export async function iniciarPausa(userId: string, tipo: PausaTipo) {
   const sb = createClient();
   // cierra cualquier pausa abierta antes de abrir otra

@@ -67,6 +67,55 @@ export async function crearUsuario(input: {
   return { ok: true, id: authUser.user.id };
 }
 
+// ── Carga MASIVA de usuarios (Excel/CSV pegado) ───────────────────
+//    Crea muchos de una vez. Devuelve el resultado fila por fila para
+//    mostrar qué entró y qué falló, sin detener el resto.
+export async function crearUsuariosMasivo(filas: {
+  login: string; nombre: string; apellido?: string; rol?: Rol;
+  cargo?: string; code?: string; mesa?: string; password?: string; documento?: string;
+}[]): Promise<{ ok: boolean; error?: string; resultados?: { login: string; ok: boolean; error?: string }[] }> {
+  try { await exigirAdmin(); } catch { return { ok: false, error: "No autorizado. Vuelve a iniciar sesión como superadmin." }; }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { ok: false, error: "Falta configurar SUPABASE_SERVICE_ROLE_KEY en Vercel." };
+  }
+  const admin = createAdminClient();
+  const resultados: { login: string; ok: boolean; error?: string }[] = [];
+
+  for (const f of filas) {
+    const login = String(f.login ?? "").trim();
+    if (!slugLogin(login)) { resultados.push({ login: login || "(vacío)", ok: false, error: "usuario inválido" }); continue; }
+    const pass = (f.password && f.password.length >= 6) ? f.password : "Cos2026*";
+    try {
+      const { data: authUser, error: e1 } = await admin.auth.admin.createUser({
+        email: loginToEmail(login), password: pass, email_confirm: true, user_metadata: { login },
+      });
+      if (e1 || !authUser?.user) {
+        const m = (e1?.message ?? "").toLowerCase();
+        const dup = m.includes("already") || m.includes("registered") || m.includes("exist") || m.includes("duplicate");
+        resultados.push({ login, ok: false, error: dup ? "ya existe" : (e1?.message ?? "no se pudo crear el acceso") });
+        continue;
+      }
+      const { error: e2 } = await admin.from("usuarios").insert({
+        id: authUser.user.id, login: login.toUpperCase(), nombre: f.nombre?.trim() || login,
+        apellido: f.apellido?.trim() || null, rol: f.rol || "agente", cargo: f.cargo?.trim() || "Agente",
+        code: f.code ? String(f.code).trim() : null, mesa: f.mesa?.trim().toUpperCase() || "MAYORISTAS",
+      });
+      if (e2) {
+        await admin.auth.admin.deleteUser(authUser.user.id).catch(() => {});
+        resultados.push({ login, ok: false, error: (e2 as any).code === "23505" ? "usuario o código repetido" : e2.message });
+        continue;
+      }
+      if (f.documento) {
+        try { await admin.rpc("guardar_documento", { p_user: authUser.user.id, p_doc: String(f.documento).trim() }); } catch { /* opcional */ }
+      }
+      resultados.push({ login, ok: true });
+    } catch (e: any) {
+      resultados.push({ login, ok: false, error: e?.message ?? "error inesperado" });
+    }
+  }
+  return { ok: true, resultados };
+}
+
 // ── Cambiar la contraseña de un miembro (queda temporal: debe cambiarla) ──
 export async function resetPassword(userId: string, nueva: string) {
   await exigirAdmin();
