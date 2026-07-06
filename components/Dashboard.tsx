@@ -770,8 +770,9 @@ function exportarExcel(nombre: string, hojas: { nombre: string; filas: any[] }[]
 /* ── Selector de mesa (Todas / Mayoristas / Gold / Premium…) ── */
 const mesaLabel = (m: string) => m.charAt(0) + m.slice(1).toLowerCase();
 function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) => void }) {
-  const [mesas, setMesas] = useState<any[]>([]);
-  useEffect(() => { data.getMesas().then(setMesas).catch(() => {}); }, []);
+  const [todas, setTodas] = useState<any[]>([]);
+  useEffect(() => { data.getMesas().then(setTodas).catch(() => {}); }, []);
+  const mesas = todas.filter((m: any) => !m.oculta);   // las de prueba no salen en el filtro
   if (mesas.length < 2) return null;   // con una sola mesa no hay nada que filtrar
   // Grupos con más de una mesa (ej. PREMIUM con Premium 1..4): opción "todo el grupo".
   const grupos = [...new Set(mesas.map((m: any) => m.grupo || m.nombre))]
