@@ -2825,6 +2825,10 @@ const NAV: Record<Rol, NavItem[]> = {
 export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [catalogo, setCatalogo] = useState<GestionTipo[]>([]);
   const [vista, setVista] = useState<Rol>(perfil.rol);
+  // Rol "efectivo": un admin/coordinador que previsualiza la vista Agente o
+  // Senior ve lo mismo que ellos (incluida la campana). Un agente/senior real
+  // usa siempre su propio rol.
+  const rolEfectivo: Rol = (perfil.rol === "superadmin" || perfil.rol === "coordinador") ? vista : perfil.rol;
   const [section, setSection] = useState<string>(NAV[perfil.rol][0].key);
   const [toast, setToast] = useState<string | null>(null);
   const [alertaIn, setAlertaIn] = useState<any>(null);
@@ -3034,7 +3038,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [respAnuncio, setRespAnuncio] = useState("");
   const [confirmandoAn, setConfirmandoAn] = useState(false);
   useEffect(() => {
-    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    if (rolEfectivo !== "agente" && rolEfectivo !== "senior") return;
     let off: (() => void) | undefined;
     (async () => {
       const pend = await data.getAnunciosPendientes(perfil.id, perfil.mesa).catch(() => []);
@@ -3048,12 +3052,12 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       });
     })();
     return () => { off?.(); };
-  }, [perfil.id]);
+  }, [perfil.id, rolEfectivo]);
   const anuncioActual = anuncios[0] ?? null;
 
   // Notificaciones de casos que me reparten o me traspasan (en vivo).
   useEffect(() => {
-    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    if (rolEfectivo !== "agente" && rolEfectivo !== "senior") return;
     return data.suscribirAsignaciones(perfil.id, "notif", async (a: any) => {
       if (!a.asignado_por || a.asignado_por === perfil.id) return;   // lo agregué yo mismo
       // Breve espera para que el enriquecimiento de Salesforce alcance a guardar el cliente.
@@ -3068,7 +3072,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       pushNotif(a.id, texto, "caso");
       fire(texto); beep();
     });
-  }, [perfil.id]);
+  }, [perfil.id, rolEfectivo]);
 
   const confirmarAnuncio = async () => {
     if (!anuncioActual || (anuncioActual.requiere_respuesta && !respAnuncio.trim())) return;
@@ -3140,7 +3144,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
               ))}
             </div>
           ) : <div className="chip neutral">{perfil.cargo}</div>}
-          {(perfil.rol === "agente" || perfil.rol === "senior") && (
+          {(rolEfectivo === "agente" || rolEfectivo === "senior") && (
             <div className="notifwrap">
               <button className="notifbtn" title="Notificaciones" onClick={() => { setNotifOpen(!notifOpen); setNoLeidas(0); }}>
                 <Bell size={17} />
