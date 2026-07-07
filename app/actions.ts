@@ -146,16 +146,27 @@ export async function resetPassword(userId: string, nueva: string) {
 }
 
 // ── Editar perfil de un usuario ───────────────────────────────────
+//    Devuelve { ok, error } (no lanza) para poder mostrar mensajes claros:
+//    en producción Next.js oculta el texto de los errores lanzados y los
+//    reemplaza por uno genérico ("Server Components render…").
 export async function editarUsuario(userId: string, campos: {
   nombre?: string; apellido?: string; code?: string; rol?: Rol; cargo?: string; login?: string; mesa?: string; email_real?: string;
-}) {
-  await exigirAdmin();
+}): Promise<{ ok: boolean; error?: string }> {
+  try { await exigirAdmin(); } catch { return { ok: false, error: "No autorizado. Vuelve a iniciar sesión como superadmin." }; }
   const admin = createAdminClient();
   const patch: Record<string, unknown> = { ...campos };
   if (campos.login) patch.login = campos.login.toUpperCase();
   if (campos.email_real !== undefined) patch.email_real = campos.email_real.trim().toLowerCase() || null;
   const { error } = await admin.from("usuarios").update(patch).eq("id", userId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    const m = (error.message || "").toLowerCase();
+    // Caso típico: aún no se corrió la migración 33 → la columna no existe.
+    if (m.includes("email_real") || m.includes("schema cache") || m.includes("column")) {
+      return { ok: false, error: "Falta correr la migración 33 en Supabase: el campo de correo aún no existe en la base de datos. Córrela en SQL Editor y vuelve a intentar." };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 // ── Bloquear / desbloquear acceso ─────────────────────────────────

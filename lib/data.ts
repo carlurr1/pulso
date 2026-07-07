@@ -196,6 +196,23 @@ export async function getEquipo(mesa?: string | null): Promise<Usuario[]> {
   return (data ?? []) as Usuario[];
 }
 
+// Agentes a los que un senior puede repartir: su propia mesa; y todo el
+// grupo cuando ese grupo es MIXTO (ej. Élite + Distrito). Premium y demás
+// siguen limitados a la mesa propia.
+export async function getEquipoRepartir(miMesa?: string | null): Promise<Usuario[]> {
+  const mesas = await getMesas().catch(() => [] as any[]);
+  const miGrupo = (mesas.find((m: any) => m.nombre === miMesa)?.grupo) || miMesa;
+  const grupoMesas = mesas.filter((m: any) => (m.grupo || m.nombre) === miGrupo);
+  const mixto = grupoMesas.some((m: any) => m.grupo_mixto);
+  if (mixto && grupoMesas.length) {
+    const nombres = new Set(grupoMesas.map((m: any) => m.nombre));
+    const todos = await getEquipo(null);
+    return todos.filter((u) => u.rol === "agente" && u.mesa && nombres.has(u.mesa));
+  }
+  const propia = await getEquipo(miMesa);
+  return propia.filter((u) => u.rol === "agente");
+}
+
 export async function repartirSeguimiento(opts: {
   userId: string; seniorId: string; casos: string[]; fecha?: string;
 }) {
