@@ -1919,7 +1919,8 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   const guardarEdit = async () => {
     setBusy(true);
     try {
-      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol, mesa: edit.mesa, email_real: edit.email_real });
+      const r = await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol, mesa: edit.mesa, email_real: edit.email_real });
+      if (!r.ok) { fire("Error: " + (r.error ?? "no se pudo guardar")); return; }
       setEdit(null); fire("Usuario actualizado"); reload();
     } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
     finally { setBusy(false); }
