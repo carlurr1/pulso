@@ -81,9 +81,28 @@ export async function crearUsuariosMasivo(filas: {
   const admin = createAdminClient();
   const resultados: { login: string; ok: boolean; error?: string }[] = [];
 
+  // Para auto-generar el usuario cuando la columna Usuario viene vacía:
+  // se arma con la inicial del nombre + el primer apellido (ej. JECHEVERRI),
+  // y si ya existe se le agrega un número. Evita choques con los ya creados.
+  const usados = new Set<string>();
+  const { data: existentes } = await admin.from("usuarios").select("login");
+  (existentes ?? []).forEach((u: any) => usados.add(String(u.login).toLowerCase()));
+  const autoLogin = (nombre: string, apellido: string, code: string) => {
+    const ini = slugLogin(nombre).charAt(0);
+    const ape = slugLogin((apellido || "").split(" ")[0]);
+    let base = (ini + ape) || slugLogin(code) || slugLogin(nombre);
+    if (!base) return "";
+    let cand = base, i = 1;
+    while (usados.has(cand)) { i++; cand = base + i; }
+    usados.add(cand);
+    return cand;
+  };
+
   for (const f of filas) {
-    const login = String(f.login ?? "").trim();
-    if (!slugLogin(login)) { resultados.push({ login: login || "(vacío)", ok: false, error: "usuario inválido" }); continue; }
+    let login = String(f.login ?? "").trim();
+    if (!login) login = autoLogin(f.nombre ?? "", f.apellido ?? "", f.code ?? "");   // usuario automático
+    if (!slugLogin(login)) { resultados.push({ login: login || "(vacío)", ok: false, error: "no pude generar usuario (falta nombre o cédula)" }); continue; }
+    usados.add(login.toLowerCase());
     const pass = (f.password && f.password.length >= 6) ? f.password : "Cos2026*";
     try {
       const { data: authUser, error: e1 } = await admin.auth.admin.createUser({

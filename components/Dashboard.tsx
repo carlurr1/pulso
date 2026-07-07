@@ -239,6 +239,16 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean, destinoId?: string | null,
                         masivoPayload?: { casos: string[]; cerrar: boolean }) => {
     try {
+      // Gestión sin caso EN LOTE (bolsa de otros): registra la misma gestión en varios casos.
+      if (m.libre && masivoPayload && masivoPayload.casos.length) {
+        for (const c of masivoPayload.casos) {
+          await data.registrarLibre({ userId: perfil.id, tipoId, numeroCaso: c, minutos: min });
+        }
+        setModal(null);
+        fire(`${masivoPayload.casos.length} gestión(es) registrada(s)`);
+        reload();
+        return;
+      }
       // Creación masiva: N creaciones a mi nombre + N casos a la bandeja del destino.
       if (masivoPayload && masivoPayload.casos.length && destinoId && destinoId !== "__ext__") {
         const n = await data.crearCasosMasivo({ destinoId, tipoId, casos: masivoPayload.casos, minutos: min, cerrar: masivoPayload.cerrar });
@@ -506,10 +516,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 );
               })}
             </div>
-            {esCreacion && (
+            {(esCreacion || (modal.libre && !sinCaso)) && (
               <label className="lbl mt16" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" checked={masivo} onChange={(e) => setMasivo(e.target.checked)} />
-                Creación masiva (varios casos de una vez)
+                {esCreacion ? "Creación masiva (varios casos de una vez)" : "Varios casos (pego varios y registro esta gestión en todos)"}
               </label>
             )}
             <div className={"grid mt16" + (sinCaso || masivo ? "" : " minutosrow")}>
@@ -540,7 +550,7 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
               {!masivo && (
                 <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
                   <span className="destlbl">Otro segmento</span>
-                  <span className="destsub">No es de mayoristas — solo cuenta la creación, no queda en bandeja</span>
+                  <span className="destsub">No es de tu segmento — solo cuenta la creación, no queda en bandeja</span>
                 </button>
               )}
               <div className="destdiv">o pásaselo a un analista</div>
@@ -593,8 +603,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
             <button className="btn ghost" onClick={onClose}>Cancelar</button>
             <button className="btn primary" disabled={!valid || busy} onClick={async () => {
               if (sinCaso) { setBusy(true); await onSave(modal, tipoId, "", +min, false); }
+              // Gestión sin caso en lote (bolsa de otros): registra la gestión en todos los casos pegados.
+              else if (modal.libre && masivo) { setBusy(true); await onSave(modal, tipoId, "", +min, false, null, { casos: casosMasivos, cerrar: false }); }
               else setStep(2);
-            }}>Continuar</button>
+            }}>{modal.libre && masivo ? `Registrar en ${casosMasivos.length || ""} caso(s)` : "Continuar"}</button>
           </div>
         )}
       </div>
@@ -770,8 +782,9 @@ function exportarExcel(nombre: string, hojas: { nombre: string; filas: any[] }[]
 /* ── Selector de mesa (Todas / Mayoristas / Gold / Premium…) ── */
 const mesaLabel = (m: string) => m.charAt(0) + m.slice(1).toLowerCase();
 function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) => void }) {
-  const [mesas, setMesas] = useState<any[]>([]);
-  useEffect(() => { data.getMesas().then(setMesas).catch(() => {}); }, []);
+  const [todas, setTodas] = useState<any[]>([]);
+  useEffect(() => { data.getMesas().then(setTodas).catch(() => {}); }, []);
+  const mesas = todas.filter((m: any) => !m.oculta);   // las de prueba no salen en el filtro
   if (mesas.length < 2) return null;   // con una sola mesa no hay nada que filtrar
   // Grupos con más de una mesa (ej. PREMIUM con Premium 1..4): opción "todo el grupo".
   const grupos = [...new Set(mesas.map((m: any) => m.grupo || m.nombre))]
@@ -1875,8 +1888,8 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula
   const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
     const c = l.split(/\t|,|;/).map((x) => x.trim());
-    return { login: c[0], nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
-  }).filter((r) => r.login);
+    return { login: c[0] ?? "", nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
+  }).filter((r) => r.nombre || r.login);   // basta con nombre; el usuario puede autogenerarse
   const filasMasivo = parseMasivo(pegado);
   const cargarMasivo = async () => {
     if (!filasMasivo.length) { fire("Pega al menos una fila."); return; }
@@ -2007,6 +2020,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               </div>
               <div className="sub tiny mono mb10" style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 8 }}>
                 Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula
+              </div>
+              <div className="sub tiny mb10">
+                <b>Usuario</b> puedes dejarlo vacío: se genera solo (inicial del nombre + apellido, ej. Juan Echeverri → JECHEVERRI).
+                El <b>Código/Cédula</b> es lo que cruza con el Excel de horarios.
               </div>
               <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456"} onChange={(e) => setPegado(e.target.value)} />
               {filasMasivo.length > 0 && <div className="sub small mt6">{filasMasivo.length} fila(s) detectada(s). La contraseña temporal será <b>Cos2026*</b> (la cambian al entrar).</div>}
