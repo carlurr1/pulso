@@ -239,6 +239,16 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const onSave = async (m: any, tipoId: string, caso: string, min: number, seguir: boolean, destinoId?: string | null,
                         masivoPayload?: { casos: string[]; cerrar: boolean }) => {
     try {
+      // Gestión sin caso EN LOTE (bolsa de otros): registra la misma gestión en varios casos.
+      if (m.libre && masivoPayload && masivoPayload.casos.length) {
+        for (const c of masivoPayload.casos) {
+          await data.registrarLibre({ userId: perfil.id, tipoId, numeroCaso: c, minutos: min });
+        }
+        setModal(null);
+        fire(`${masivoPayload.casos.length} gestión(es) registrada(s)`);
+        reload();
+        return;
+      }
       // Creación masiva: N creaciones a mi nombre + N casos a la bandeja del destino.
       if (masivoPayload && masivoPayload.casos.length && destinoId && destinoId !== "__ext__") {
         const n = await data.crearCasosMasivo({ destinoId, tipoId, casos: masivoPayload.casos, minutos: min, cerrar: masivoPayload.cerrar });
@@ -506,10 +516,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 );
               })}
             </div>
-            {esCreacion && (
+            {(esCreacion || (modal.libre && !sinCaso)) && (
               <label className="lbl mt16" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" checked={masivo} onChange={(e) => setMasivo(e.target.checked)} />
-                Creación masiva (varios casos de una vez)
+                {esCreacion ? "Creación masiva (varios casos de una vez)" : "Varios casos (pego varios y registro esta gestión en todos)"}
               </label>
             )}
             <div className={"grid mt16" + (sinCaso || masivo ? "" : " minutosrow")}>
@@ -540,7 +550,7 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
               {!masivo && (
                 <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
                   <span className="destlbl">Otro segmento</span>
-                  <span className="destsub">No es de mayoristas — solo cuenta la creación, no queda en bandeja</span>
+                  <span className="destsub">No es de tu segmento — solo cuenta la creación, no queda en bandeja</span>
                 </button>
               )}
               <div className="destdiv">o pásaselo a un analista</div>
@@ -593,8 +603,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
             <button className="btn ghost" onClick={onClose}>Cancelar</button>
             <button className="btn primary" disabled={!valid || busy} onClick={async () => {
               if (sinCaso) { setBusy(true); await onSave(modal, tipoId, "", +min, false); }
+              // Gestión sin caso en lote (bolsa de otros): registra la gestión en todos los casos pegados.
+              else if (modal.libre && masivo) { setBusy(true); await onSave(modal, tipoId, "", +min, false, null, { casos: casosMasivos, cerrar: false }); }
               else setStep(2);
-            }}>Continuar</button>
+            }}>{modal.libre && masivo ? `Registrar en ${casosMasivos.length || ""} caso(s)` : "Continuar"}</button>
           </div>
         )}
       </div>
