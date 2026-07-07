@@ -1679,17 +1679,22 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
           <div className="searchwrap"><Search size={15} className="searchico" /><input className="inp searchinp" placeholder="Buscar caso, persona, gestión…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         </div>
         <div className="tblscroll">
-          <table className="tbl">
+          <table className="tbl tbl-audit">
+            <colgroup>
+              <col style={{ width: "17%" }} /><col style={{ width: "23%" }} /><col style={{ width: "14%" }} />
+              <col style={{ width: "27%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "4%" }} />
+            </colgroup>
             <thead><tr><th>Persona</th><th>Gestión</th><th>Caso</th><th>Cliente</th><th>Min.</th><th>Hora</th><th></th></tr></thead>
             <tbody>
               {rows.map((g) => {
                 const cat = g.gestiones_catalogo?.categoria as Categoria;
+                const nomG = g.gestiones_catalogo?.nombre ?? "—";
                 return (
                   <tr key={g.id} className={g.alert ? "row-alert" : ""}>
-                    <td className="bold">{uName(g)}</td>
-                    <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} />{g.gestiones_catalogo?.nombre ?? "—"}</span></td>
+                    <td className="bold"><span className="cellclip" title={uName(g)}>{uName(g)}</span></td>
+                    <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} /><span className="cellclip" title={nomG}>{nomG}</span></span></td>
                     <td className="mono s12">#{g.numero_caso.replace(/^EXT-/, "")}</td>
-                    <td className="s12">{g.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (g.cliente ?? <span className="faint">—</span>)}</td>
+                    <td className="s12">{g.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (g.cliente ? <span className="cellclip" title={g.cliente}>{g.cliente}</span> : <span className="faint">—</span>)}</td>
                     <td className={"mono bold " + (g.alert ? "danger" : "")}>{g.minutos}{g.alert && <AlertTriangle size={12} className="inlineicon" />}</td>
                     <td className="mono soft s12">{hh(g.registrado_at)}</td>
                     <td><button className="btn ghost sm" onClick={() => setSel(g)}>Revisar</button></td>
