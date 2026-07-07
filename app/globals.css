@@ -155,9 +155,18 @@ textarea.inp{resize:vertical;min-height:120px;font-family:'JetBrains Mono';font-
 .tbl{width:100%;border-collapse:collapse}
 .tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-faint);
   font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
-.tbl td{padding:11px 12px;font-size:13px;border-bottom:1px solid var(--surface-2)}
+.tbl td{padding:11px 12px;font-size:13px;border-bottom:1px solid var(--surface-2);vertical-align:middle}
 .tbl tr:hover td{background:var(--surface-2)}
-.row-alert td{background:var(--danger-50)!important}
+.row-alert td{background:var(--danger-50)}
+.row-alert:hover td{background:var(--danger-50)}
+.row-alert td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+
+/* Tabla de auditoría: columnas fijas y texto en una sola línea con “…” */
+.tbl-audit{table-layout:fixed}
+.tbl-audit td{white-space:nowrap}
+.cellclip{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.tbl-audit .dotname{display:flex;align-items:center;gap:7px;min-width:0}
+.tbl-audit .catdot{flex:0 0 auto}
 
 /* progress */
 .prog{height:7px;border-radius:6px;background:var(--surface-2);overflow:hidden}
