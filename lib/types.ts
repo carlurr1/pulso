@@ -17,6 +17,7 @@ export interface Usuario {
   debe_cambiar_pass?: boolean;
   bloqueado?: boolean;
   pass_cambiada_at?: string | null;
+  email_real?: string | null;
 }
 
 export interface GestionTipo {
