@@ -1877,7 +1877,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [edit, setEdit] = useState<any>(null);   // usuario en edición
   const [busy, setBusy] = useState(false);
   const [mesas, setMesas] = useState<any[]>([]);
-  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" });
+  const [f, setF] = useState<any>({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS", email_real: "" });
   const [masivo, setMasivo] = useState(false);
   const [pegado, setPegado] = useState("");
   const [resMasivo, setResMasivo] = useState<any[] | null>(null);
@@ -1885,10 +1885,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
   useEffect(() => { reload(); data.getMesas().then(setMesas).catch(() => {}); }, []);
 
   // Carga masiva: pega filas separadas por TAB (desde Excel) o coma.
-  // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula
+  // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula, Correo
   const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
     const c = l.split(/\t|,|;/).map((x) => x.trim());
-    return { login: c[0] ?? "", nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "" };
+    return { login: c[0] ?? "", nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "", email_real: c[7] ?? "" };
   }).filter((r) => r.nombre || r.login);   // basta con nombre; el usuario puede autogenerarse
   const filasMasivo = parseMasivo(pegado);
   const cargarMasivo = async () => {
@@ -1910,16 +1910,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
     try {
       const r = await crearUsuario(f);
       if (!r.ok) { fire(r.error ?? "No se pudo crear el usuario."); return; }
-      setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS" }); fire("Usuario creado"); reload();
+      setModal(false); setF({ nombre: "", apellido: "", login: "", code: "", cargo: "Agente", rol: "agente", password: "Cos2026*", mesa: "MAYORISTAS", email_real: "" }); fire("Usuario creado"); reload();
     } catch (e: any) { fire("Error inesperado: " + (e?.message ?? "")); }
     finally { setBusy(false); }
   };
 
-  const abrirEdit = (u: Usuario) => setEdit({ id: u.id, nombre: u.nombre, apellido: u.apellido ?? "", code: u.code ?? "", cargo: u.cargo ?? "Agente", rol: u.rol, mesa: u.mesa ?? "MAYORISTAS", bloqueado: !!u.bloqueado, nuevaPass: "" });
+  const abrirEdit = (u: Usuario) => setEdit({ id: u.id, nombre: u.nombre, apellido: u.apellido ?? "", code: u.code ?? "", cargo: u.cargo ?? "Agente", rol: u.rol, mesa: u.mesa ?? "MAYORISTAS", email_real: (u as any).email_real ?? "", bloqueado: !!u.bloqueado, nuevaPass: "" });
   const guardarEdit = async () => {
     setBusy(true);
     try {
-      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol, mesa: edit.mesa });
+      await editarUsuario(edit.id, { nombre: edit.nombre, apellido: edit.apellido, code: edit.code, cargo: edit.cargo, rol: edit.rol, mesa: edit.mesa, email_real: edit.email_real });
       setEdit(null); fire("Usuario actualizado"); reload();
     } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
     finally { setBusy(false); }
@@ -2002,7 +2002,11 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                     {mesas.map((m: any) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
                   </select></div>
               </div>
-              <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios. La <b>mesa</b> define su contenedor: bandeja, compañeros y métricas.</div>
+              <div className="mt12">
+                <label className="lbl">Correo (para restablecer contraseña)</label>
+                <input className="inp" type="email" value={f.email_real} placeholder="persona@empresa.com" onChange={(e) => setF({ ...f, email_real: e.target.value })} />
+              </div>
+              <div className="sub tiny mt8">La contraseña temporal la cambiará la persona en su primer ingreso. El <b>código operativo</b> empareja con el Excel de horarios. La <b>mesa</b> define su contenedor: bandeja, compañeros y métricas. El <b>correo</b> permite que la persona recupere su clave sola desde la pantalla de acceso.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" disabled={busy} onClick={add}>{busy ? "Creando…" : "Crear usuario"}</button></div>
           </div>
@@ -2019,13 +2023,14 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                 (separadas por tabulación o coma):
               </div>
               <div className="sub tiny mono mb10" style={{ background: "var(--surface-2)", padding: "8px 10px", borderRadius: 8 }}>
-                Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula
+                Usuario · Nombre · Apellido · Cargo · Rol · Mesa · Código/Cédula · Correo
               </div>
               <div className="sub tiny mb10">
                 <b>Usuario</b> puedes dejarlo vacío: se genera solo (inicial del nombre + apellido, ej. Juan Echeverri → JECHEVERRI).
                 El <b>Código/Cédula</b> es lo que cruza con el Excel de horarios.
+                El <b>Correo</b> (opcional) permite que la persona recupere su clave sola.
               </div>
-              <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456"} onChange={(e) => setPegado(e.target.value)} />
+              <textarea className="inp mono" rows={8} value={pegado} placeholder={"JDAVID\tJuan\tDavid\tAnalista\tagente\tPREMIUM 1\t1032456789\tjuan@empresa.com\nMLOPEZ\tMaría\tLópez\tSenior\tsenior\tPREMIUM 1\t52123456\tmaria@empresa.com"} onChange={(e) => setPegado(e.target.value)} />
               {filasMasivo.length > 0 && <div className="sub small mt6">{filasMasivo.length} fila(s) detectada(s). La contraseña temporal será <b>Cos2026*</b> (la cambian al entrar).</div>}
               {resMasivo && (
                 <div className="mt12" style={{ maxHeight: 200, overflow: "auto" }}>
@@ -2071,6 +2076,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
                   <select className="inp" value={edit.mesa} onChange={(e) => setEdit({ ...edit, mesa: e.target.value })}>
                     {mesas.map((m: any) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
                   </select></div>
+              </div>
+              <div className="mt12">
+                <label className="lbl">Correo (para restablecer contraseña)</label>
+                <input className="inp" type="email" value={edit.email_real} placeholder="persona@empresa.com" onChange={(e) => setEdit({ ...edit, email_real: e.target.value })} />
               </div>
 
               <div className="divider" />

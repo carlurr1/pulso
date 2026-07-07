@@ -27,8 +27,10 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
   const isLogin = path === "/login";
+  // Rutas públicas: login y el aterrizaje de los enlaces de correo (aún sin sesión).
+  const esPublica = isLogin || path.startsWith("/auth/");
 
-  if (!user && !isLogin) {
+  if (!user && !esPublica) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (user && isLogin) {
