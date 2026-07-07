@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
+import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword, eliminarUsuario } from "@/app/actions";
 import { pushUsuarios, pushEquipo } from "@/app/push";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
@@ -1939,6 +1939,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
     catch (e: any) { fire("Error: " + (e.message ?? "")); }
     finally { setBusy(false); }
   };
+  const eliminar = async () => {
+    if (!window.confirm(`¿Eliminar a ${edit.nombre} ${edit.apellido ?? ""}? Esta acción no se puede deshacer. Si tiene historial, mejor bloquéalo.`)) return;
+    setBusy(true);
+    try {
+      const r = await eliminarUsuario(edit.id);
+      if (!r.ok) { fire(r.error ?? "No se pudo eliminar."); return; }
+      setEdit(null); fire("Usuario eliminado"); reload();
+    } catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setBusy(false); }
+  };
 
   return (
     <>
@@ -2096,6 +2106,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               <div className="seglinea mt12" style={{ marginTop: 12 }}>
                 <div><div className="bold s13">{edit.bloqueado ? "Cuenta bloqueada" : "Acceso activo"}</div><div className="sub tiny">{edit.bloqueado ? "No puede iniciar sesión." : "Puede iniciar sesión normalmente."}</div></div>
                 <button className={"btn " + (edit.bloqueado ? "primary" : "ghost")} disabled={busy} onClick={toggleBloqueo}>{edit.bloqueado ? "Desbloquear" : "Bloquear"}</button>
+              </div>
+              <div className="seglinea mt12" style={{ marginTop: 12 }}>
+                <div><div className="bold s13" style={{ color: "var(--danger)" }}>Eliminar usuario</div><div className="sub tiny">Borra la cuenta y sus datos. Úsalo para duplicados o accesos por error. No se puede deshacer.</div></div>
+                <button className="btn danger-outline" disabled={busy} onClick={eliminar}><Trash2 size={14} />Eliminar</button>
               </div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setEdit(null)}>Cerrar</button><button className="btn primary" disabled={busy} onClick={guardarEdit}>{busy ? "Guardando…" : "Guardar cambios"}</button></div>
