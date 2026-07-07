@@ -169,6 +169,27 @@ export async function editarUsuario(userId: string, campos: {
   return { ok: true };
 }
 
+// ── Eliminar un usuario por completo ──────────────────────────────
+//    Borra la cuenta de acceso; el perfil y sus datos se van en cascada.
+//    Si tiene actividad que otros dependen (casos que asignó), la base lo
+//    impide: en ese caso conviene bloquearlo en vez de borrarlo.
+export async function eliminarUsuario(userId: string): Promise<{ ok: boolean; error?: string }> {
+  try { await exigirAdmin(); } catch { return { ok: false, error: "No autorizado. Vuelve a iniciar sesión como superadmin." }; }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { ok: false, error: "Falta configurar SUPABASE_SERVICE_ROLE_KEY en Vercel." };
+  }
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) {
+    const m = (error.message || "").toLowerCase();
+    if (m.includes("foreign key") || m.includes("violates") || m.includes("constraint")) {
+      return { ok: false, error: "No se puede eliminar: este usuario ya tiene actividad registrada (casos que asignó, etc.). Mejor bloquéalo." };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
 // ── Bloquear / desbloquear acceso ─────────────────────────────────
 export async function bloquearUsuario(userId: string, bloquear: boolean) {
   await exigirAdmin();

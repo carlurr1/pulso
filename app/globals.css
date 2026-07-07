@@ -92,6 +92,8 @@
 .btn.primary:hover{background:var(--primary-600)}
 .btn.ghost{background:var(--surface);color:var(--ink);border-color:var(--line)}
 .btn.ghost:hover{background:var(--surface-2)}
+.btn.danger-outline{background:var(--surface);color:var(--danger);border-color:var(--danger)}
+.btn.danger-outline:hover{background:var(--danger-50)}
 .btn.sm{padding:7px 12px;font-size:12px}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 

@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import * as data from "@/lib/data";
-import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword } from "@/app/actions";
+import { crearUsuario, crearUsuariosMasivo, guardarHorarios, editarUsuario, bloquearUsuario, resetPassword, eliminarUsuario } from "@/app/actions";
 import { pushUsuarios, pushEquipo } from "@/app/push";
 import { logout } from "@/app/login/actions";
 import { CATS, type Usuario, type GestionTipo, type Categoria, type Rol } from "@/lib/types";
@@ -1939,6 +1939,16 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
     catch (e: any) { fire("Error: " + (e.message ?? "")); }
     finally { setBusy(false); }
   };
+  const eliminar = async () => {
+    if (!window.confirm(`¿Eliminar a ${edit.nombre} ${edit.apellido ?? ""}? Esta acción no se puede deshacer. Si tiene historial, mejor bloquéalo.`)) return;
+    setBusy(true);
+    try {
+      const r = await eliminarUsuario(edit.id);
+      if (!r.ok) { fire(r.error ?? "No se pudo eliminar."); return; }
+      setEdit(null); fire("Usuario eliminado"); reload();
+    } catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setBusy(false); }
+  };
 
   return (
     <>
@@ -2096,6 +2106,10 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
               <div className="seglinea mt12" style={{ marginTop: 12 }}>
                 <div><div className="bold s13">{edit.bloqueado ? "Cuenta bloqueada" : "Acceso activo"}</div><div className="sub tiny">{edit.bloqueado ? "No puede iniciar sesión." : "Puede iniciar sesión normalmente."}</div></div>
                 <button className={"btn " + (edit.bloqueado ? "primary" : "ghost")} disabled={busy} onClick={toggleBloqueo}>{edit.bloqueado ? "Desbloquear" : "Bloquear"}</button>
+              </div>
+              <div className="seglinea mt12" style={{ marginTop: 12 }}>
+                <div><div className="bold s13" style={{ color: "var(--danger)" }}>Eliminar usuario</div><div className="sub tiny">Borra la cuenta y sus datos. Úsalo para duplicados o accesos por error. No se puede deshacer.</div></div>
+                <button className="btn danger-outline" disabled={busy} onClick={eliminar}><Trash2 size={14} />Eliminar</button>
               </div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setEdit(null)}>Cerrar</button><button className="btn primary" disabled={busy} onClick={guardarEdit}>{busy ? "Guardando…" : "Guardar cambios"}</button></div>
@@ -2825,6 +2839,10 @@ const NAV: Record<Rol, NavItem[]> = {
 export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [catalogo, setCatalogo] = useState<GestionTipo[]>([]);
   const [vista, setVista] = useState<Rol>(perfil.rol);
+  // Rol "efectivo": un admin/coordinador que previsualiza la vista Agente o
+  // Senior ve lo mismo que ellos (incluida la campana). Un agente/senior real
+  // usa siempre su propio rol.
+  const rolEfectivo: Rol = (perfil.rol === "superadmin" || perfil.rol === "coordinador") ? vista : perfil.rol;
   const [section, setSection] = useState<string>(NAV[perfil.rol][0].key);
   const [toast, setToast] = useState<string | null>(null);
   const [alertaIn, setAlertaIn] = useState<any>(null);
@@ -3034,7 +3052,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const [respAnuncio, setRespAnuncio] = useState("");
   const [confirmandoAn, setConfirmandoAn] = useState(false);
   useEffect(() => {
-    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    if (rolEfectivo !== "agente" && rolEfectivo !== "senior") return;
     let off: (() => void) | undefined;
     (async () => {
       const pend = await data.getAnunciosPendientes(perfil.id, perfil.mesa).catch(() => []);
@@ -3048,12 +3066,12 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       });
     })();
     return () => { off?.(); };
-  }, [perfil.id]);
+  }, [perfil.id, rolEfectivo]);
   const anuncioActual = anuncios[0] ?? null;
 
   // Notificaciones de casos que me reparten o me traspasan (en vivo).
   useEffect(() => {
-    if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
+    if (rolEfectivo !== "agente" && rolEfectivo !== "senior") return;
     return data.suscribirAsignaciones(perfil.id, "notif", async (a: any) => {
       if (!a.asignado_por || a.asignado_por === perfil.id) return;   // lo agregué yo mismo
       // Breve espera para que el enriquecimiento de Salesforce alcance a guardar el cliente.
@@ -3068,7 +3086,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       pushNotif(a.id, texto, "caso");
       fire(texto); beep();
     });
-  }, [perfil.id]);
+  }, [perfil.id, rolEfectivo]);
 
   const confirmarAnuncio = async () => {
     if (!anuncioActual || (anuncioActual.requiere_respuesta && !respAnuncio.trim())) return;
@@ -3140,7 +3158,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
               ))}
             </div>
           ) : <div className="chip neutral">{perfil.cargo}</div>}
-          {(perfil.rol === "agente" || perfil.rol === "senior") && (
+          {(rolEfectivo === "agente" || rolEfectivo === "senior") && (
             <div className="notifwrap">
               <button className="notifbtn" title="Notificaciones" onClick={() => { setNotifOpen(!notifOpen); setNoLeidas(0); }}>
                 <Bell size={17} />
