@@ -25,6 +25,7 @@ const ICON: Record<Categoria, any> = {
 // "Hoy" SIEMPRE en hora de Colombia (con UTC, a las 7 p.m. saltaba al día siguiente).
 const hoy = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 const todayISO = hoy;
+const APP_VERSION = "1.0.3";
 const PAUSA_LBL: Record<string, string> = { break: "Break", almuerzo: "Almuerzo", reunion: "Reunión interna", capacitacion: "Capacitación", bano: "Baño", backoffice: "Backoffice" };
 const ESTADO_CHIP: Record<string, string> = { online: "done", offline: "sin", break: "medio", almuerzo: "medio", reunion: "bajo", capacitacion: "bajo", bano: "medio", backoffice: "medio" };
 const initials = (u: { nombre: string; apellido?: string | null }) =>
@@ -621,8 +622,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   const [bandeja, setBandeja] = useState<any[]>([]);
   const [bulk, setBulk] = useState("");
 
-  // El senior solo reparte dentro de su mesa (RLS lo exige también en la base).
-  useEffect(() => { data.getEquipo(perfil.mesa).then((e) => { const ag = e.filter((u) => u.rol === "agente"); setEquipo(ag); setSel(ag[0]?.id ?? ""); }); }, [perfil.mesa]);
+  // El senior reparte dentro de su mesa; y a todo el grupo si es mixto (Élite+Distrito).
+  useEffect(() => { data.getEquipoRepartir(perfil.mesa).then((ag) => { setEquipo(ag); setSel(ag[0]?.id ?? ""); }); }, [perfil.mesa]);
   useEffect(() => { if (sel) data.getMiBandeja(sel).then(setBandeja); }, [sel]);
 
   const target = equipo.find((u) => u.id === sel);
@@ -2974,14 +2975,35 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   }, [perfil.id]);
 
   // Alertas en tiempo real (las que me envía el admin/coordinador).
-  const beep = () => {
+  // Sonido: un único AudioContext reutilizado y "desbloqueado" en el primer
+  // gesto del usuario (los navegadores callan el audio hasta que interactúa).
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const getCtx = () => {
+    if (!audioCtxRef.current) {
+      try { audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)(); } catch { return null; }
+    }
+    return audioCtxRef.current;
+  };
+  useEffect(() => {
+    const unlock = () => { const c = getCtx(); if (c && c.state === "suspended") c.resume().catch(() => {}); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+  }, []);
+  const beep = (doble = false) => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination); o.type = "sine"; o.frequency.value = 880;
-      g.gain.setValueAtTime(0.001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      o.start(); o.stop(ctx.currentTime + 0.5);
+      const ctx = getCtx(); if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      const t0 = ctx.currentTime;
+      const tono = (inicio: number, freq: number) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.type = "sine"; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.001, inicio); g.gain.exponentialRampToValueAtTime(0.3, inicio + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, inicio + 0.45);
+        o.start(inicio); o.stop(inicio + 0.45);
+      };
+      tono(t0, 880);
+      if (doble) tono(t0 + 0.28, 1174.7);   // segundo tono más agudo para mensajes masivos
     } catch { /* sin sonido si el navegador lo bloquea */ }
   };
   useEffect(() => {
@@ -2994,6 +3016,18 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     return () => { off?.(); };
   }, [perfil.id]);
   const cerrarAlerta = () => { if (alertaIn) data.marcarAlertaLeida(alertaIn.id); setAlertaIn(null); };
+
+  // Campanita: casos que me reparten/traspasan + mensajes masivos (anuncios).
+  const [notifs, setNotifs] = useState<any[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [noLeidas, setNoLeidas] = useState(0);
+  const seenNotifRef = useRef<Set<string>>(new Set());
+  const pushNotif = (id: string, texto: string, tipo: "caso" | "masivo") => {
+    if (seenNotifRef.current.has(id)) return;   // evita duplicados si el evento llega dos veces
+    seenNotifRef.current.add(id);
+    setNotifs((prev) => [{ id, texto, tipo, at: new Date().toISOString() }, ...prev].slice(0, 20));
+    setNoLeidas((n) => n + 1);
+  };
 
   // Anuncios anclados: ventana bloqueante hasta confirmar (solo equipo operativo).
   const [anuncios, setAnuncios] = useState<any[]>([]);
@@ -3009,7 +3043,8 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         if (!a?.activo) return;
         if (a.mesa && perfil.mesa && a.mesa !== perfil.mesa) return;   // anuncio de otra mesa
         setAnuncios((prev) => (prev.some((x) => x.id === a.id) ? prev : [...prev, a]));
-        beep();
+        pushNotif(a.id, a.mensaje || "Nuevo mensaje masivo", "masivo");
+        beep(true);
       });
     })();
     return () => { off?.(); };
@@ -3017,9 +3052,6 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const anuncioActual = anuncios[0] ?? null;
 
   // Notificaciones de casos que me reparten o me traspasan (en vivo).
-  const [notifs, setNotifs] = useState<any[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [noLeidas, setNoLeidas] = useState(0);
   useEffect(() => {
     if (perfil.rol !== "agente" && perfil.rol !== "senior") return;
     return data.suscribirAsignaciones(perfil.id, "notif", async (a: any) => {
@@ -3033,8 +3065,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
       } catch {}
       try { cli = await data.getClienteCaso(a.numero_caso); } catch {}
       const texto = `${de ? de + " te pasó" : "Te asignaron"} el caso #${a.numero_caso}${cli ? " · " + cli : ""}`;
-      setNotifs((prev) => [{ id: a.id, texto, at: new Date().toISOString() }, ...prev].slice(0, 20));
-      setNoLeidas((n) => n + 1);
+      pushNotif(a.id, texto, "caso");
       fire(texto); beep();
     });
   }, [perfil.id]);
@@ -3094,6 +3125,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           </div>
           <div className="uchip"><div className="uava">{initials(perfil)}</div><div className="min0"><div className="uname">{perfil.nombre} {perfil.apellido}</div><div className="ucargo">{perfil.cargo}</div></div></div>
           <button className="signout" onClick={() => logout()}><LogOut size={15} /><span>Cerrar sesión</span></button>
+          <div className="appcredit">Developed by Carlos Urrego · 2026 · Versión {APP_VERSION}</div>
         </div>
       </aside>
 
@@ -3117,10 +3149,13 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
               {notifOpen && (
                 <div className="notifpanel">
                   <div className="h2 mb6" style={{ fontSize: 13 }}>Notificaciones</div>
-                  {notifs.length === 0 && <div className="sub small">Nada nuevo por ahora. Aquí verás los casos que te repartan o te pasen.</div>}
+                  {notifs.length === 0 && <div className="sub small">Nada nuevo por ahora. Aquí verás los casos que te repartan o te pasen y los mensajes masivos.</div>}
                   {notifs.map((n) => (
                     <div key={n.id} className="notifitem">
-                      <div className="s12">{n.texto}</div>
+                      <div className="s12">
+                        {n.tipo === "masivo" && <span className="chip bajo s11" style={{ marginRight: 6 }}>Masivo</span>}
+                        {n.texto}
+                      </div>
                       <div className="sub tiny">{new Date(n.at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
                     </div>
                   ))}
