@@ -1681,10 +1681,10 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
         <div className="tblscroll">
           <table className="tbl tbl-audit">
             <colgroup>
-              <col style={{ width: "17%" }} /><col style={{ width: "23%" }} /><col style={{ width: "14%" }} />
-              <col style={{ width: "27%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "4%" }} />
+              <col style={{ width: "17%" }} /><col style={{ width: "22%" }} /><col style={{ width: "130px" }} />
+              <col /><col style={{ width: "74px" }} /><col style={{ width: "66px" }} /><col style={{ width: "108px" }} />
             </colgroup>
-            <thead><tr><th>Persona</th><th>Gestión</th><th>Caso</th><th>Cliente</th><th>Min.</th><th>Hora</th><th></th></tr></thead>
+            <thead><tr><th>Persona</th><th>Gestión</th><th>Caso</th><th>Cliente</th><th className="num">Min.</th><th className="num">Hora</th><th></th></tr></thead>
             <tbody>
               {rows.map((g) => {
                 const cat = g.gestiones_catalogo?.categoria as Categoria;
@@ -1695,9 +1695,9 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
                     <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} /><span className="cellclip" title={nomG}>{nomG}</span></span></td>
                     <td className="mono s12">#{g.numero_caso.replace(/^EXT-/, "")}</td>
                     <td className="s12">{g.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (g.cliente ? <span className="cellclip" title={g.cliente}>{g.cliente}</span> : <span className="faint">—</span>)}</td>
-                    <td className={"mono bold " + (g.alert ? "danger" : "")}>{g.minutos}{g.alert && <AlertTriangle size={12} className="inlineicon" />}</td>
-                    <td className="mono soft s12">{hh(g.registrado_at)}</td>
-                    <td><button className="btn ghost sm" onClick={() => setSel(g)}>Revisar</button></td>
+                    <td className={"mono bold num " + (g.alert ? "danger" : "")}>{g.alert && <AlertTriangle size={12} className="inlineicon" />}{g.minutos}</td>
+                    <td className="mono soft s12 num">{hh(g.registrado_at)}</td>
+                    <td className="colacc"><button className="btn ghost sm" onClick={() => setSel(g)}>Revisar</button></td>
                   </tr>
                 );
               })}
