@@ -782,6 +782,28 @@ function exportarExcel(nombre: string, hojas: { nombre: string; filas: any[] }[]
 
 /* ── Selector de mesa (Todas / Mayoristas / Gold / Premium…) ── */
 const mesaLabel = (m: string) => m.charAt(0) + m.slice(1).toLowerCase();
+
+// Quita tildes y baja a minúsculas para buscar sin importar acentos.
+const sinTildes = (s: string) => (s ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+// ¿El texto buscado aparece en alguno de los campos (nombre, apellido…)?
+const matchNombre = (q: string, ...campos: (string | null | undefined)[]) => {
+  const t = sinTildes(q).trim();
+  if (!t) return true;
+  const hay = sinTildes(campos.filter(Boolean).join(" "));
+  return t.split(/\s+/).every((p) => hay.includes(p));   // todas las palabras deben aparecer
+};
+
+// Buscador con lupa, reutilizable en las listas de personas.
+function BuscaNombre({ value, setValue, placeholder = "Buscar por nombre…" }: { value: string; setValue: (v: string) => void; placeholder?: string }) {
+  return (
+    <div className="buscanombre">
+      <Search size={14} />
+      <input className="buscanombre-inp" value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} />
+      {value && <button className="buscanombre-x" onClick={() => setValue("")} title="Limpiar"><X size={13} /></button>}
+    </div>
+  );
+}
+
 function MesaSelector({ mesa, setMesa }: { mesa: string; setMesa: (m: string) => void }) {
   const [todas, setTodas] = useState<any[]>([]);
   useEffect(() => { data.getMesas().then(setTodas).catch(() => {}); }, []);
@@ -1874,6 +1896,7 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
 
 function UserConfig({ fire }: { fire: (m: string) => void }) {
   const [users, setUsers] = useState<Usuario[]>([]);
+  const [q, setQ] = useState("");
   const [modal, setModal] = useState(false);
   const [edit, setEdit] = useState<any>(null);   // usuario en edición
   const [busy, setBusy] = useState(false);
@@ -1956,6 +1979,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
         <div className="tblhead">
           <div><div className="h2">Usuarios del equipo</div><div className="sub small">Crea accesos, edita rol/cargo/código, resetea claves y bloquea accesos. Las contraseñas se guardan cifradas — nadie las ve, ni tú.</div></div>
           <div className="gap9">
+            <BuscaNombre value={q} setValue={setQ} placeholder="Buscar usuario…" />
             <button className="btn ghost" onClick={() => { setMasivo(true); setResMasivo(null); }}><Upload size={15} />Carga masiva</button>
             <button className="btn primary" onClick={() => setModal(true)}><Plus size={16} />Nuevo usuario</button>
           </div>
@@ -1964,7 +1988,7 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
           <table className="tbl">
             <thead><tr><th>Nombre</th><th>Usuario</th><th>Código</th><th>Rol</th><th>Cargo</th><th>Mesa</th><th>Estado</th><th></th></tr></thead>
             <tbody>
-              {users.map((u) => {
+              {users.filter((u) => matchNombre(q, u.nombre, u.apellido, u.login, u.code)).map((u) => {
                 const e = estadoUsuario(u);
                 return (
                   <tr key={u.id}>
@@ -2393,6 +2417,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
   const [enviando, setEnviando] = useState(false);
   const [okMsg, setOkMsg] = useState("");
   const [mesa, setMesa] = useState("");
+  const [q, setQ] = useState("");
   const [inasistencias, setInasistencias] = useState<any[]>([]);
   const cargar = () => {
     data.getPresencia(mesa || null).then((d) => { setFilas(d); setLoading(false); });
@@ -2435,6 +2460,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
       <div className="tblhead">
         <div><div className="h2">Equipo · presencia de hoy</div><div className="sub small">Quién está conectado, su tiempo en la app, su tiempo activo en el PC y sus pausas. Puedes enviar una alerta al instante. Se actualiza solo.</div></div>
         <div className="gap9">
+          <BuscaNombre value={q} setValue={setQ} />
           {privPres && <MesaSelector mesa={mesa} setMesa={setMesa} />}
           <span className="chip done"><span className="liveblip" /> {enLinea} en línea</span>
         </div>
@@ -2445,7 +2471,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
           <thead><tr><th>Persona</th><th>Cargo</th><th>Estado</th><th>Última conexión</th><th>Tiempo en la app</th><th>Gestión en el PC</th><th>En pausa</th><th></th></tr></thead>
           <tbody>
             {loading && <tr><td colSpan={8}><div className="empty">Cargando…</div></td></tr>}
-            {!loading && filas.map((f) => (
+            {!loading && filas.filter((f) => matchNombre(q, f.nombre, f.apellido)).map((f) => (
               <tr key={f.user_id}>
                 <td className="bold nameCell">
                   <button className="linkperson" onClick={() => setPerfilUser({ id: f.user_id, nombre: firstLast(f.nombre, f.apellido) })} title="Ver perfil del día">
@@ -2609,6 +2635,7 @@ function CargaView({ perfil }: { perfil: Usuario }) {
   const [desde, setDesde] = useState(todayISO());
   const [hasta, setHasta] = useState(todayISO());
   const [mesa, setMesa] = useState("");
+  const [q, setQ] = useState("");
   const [filas, setFilas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
@@ -2626,7 +2653,8 @@ function CargaView({ perfil }: { perfil: Usuario }) {
   const activos = filas.filter((f: any) => f.asignados > 0 || f.minutos > 0);
   const totalAsig = activos.reduce((s: number, f: any) => s + f.asignados, 0);
   const promedio = activos.length ? totalAsig / activos.length : 0;
-  const chart = activos.map((f: any) => ({
+  const vistos = activos.filter((f: any) => matchNombre(q, f.nombre, f.apellido));
+  const chart = vistos.map((f: any) => ({
     nombre: firstLast(f.nombre, f.apellido),
     asignados: f.asignados, gestionados: f.gestionados,
   }));
@@ -2636,6 +2664,7 @@ function CargaView({ perfil }: { perfil: Usuario }) {
       <div className="row-between end">
         <div><div className="eyebrow">{priv ? "Coordinación · Help Desk" : "Senior · tu grupo"}</div><div className="h1">Carga de casos</div></div>
         <div className="toolbar">
+          <BuscaNombre value={q} setValue={setQ} />
           {priv && <MesaSelector mesa={mesa} setMesa={setMesa} />}
           <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
         </div>
@@ -2667,7 +2696,7 @@ function CargaView({ perfil }: { perfil: Usuario }) {
               <table className="tbl">
                 <thead><tr><th>Persona</th><th>Cargo</th>{priv && !mesa && <th>Mesa</th>}<th>Asignados</th><th>Gestionados</th><th>Pendientes</th><th>Avance</th><th>Tiempo</th></tr></thead>
                 <tbody>
-                  {activos.map((f: any) => {
+                  {vistos.map((f: any) => {
                     const pct = f.asignados ? Math.round((f.gestionados / f.asignados) * 100) : null;
                     return (
                       <tr key={f.user_id}>
@@ -2699,6 +2728,7 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
   const [loading, setLoading] = useState(true);
   const [mesa, setMesa] = useState("");
   const [turno, setTurno] = useState("");
+  const [q, setQ] = useState("");
   const soloYo = perfil.rol === "agente";
   const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
 
@@ -2722,6 +2752,8 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
     });
     return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [filas, mesa, turno]);
+
+  const personasVistas = personas.filter((p) => matchNombre(q, p.nombre));
 
   const semLabel = `${fmtFecha(monday)} → ${fmtFecha(_addDays(monday, 6))}`;
   const titulo = soloYo ? "Mi horario semanal" : perfil.rol === "senior" ? "Horarios de tu grupo" : "Horarios de la operación";
@@ -2763,6 +2795,7 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
       <div className="row-between end">
         <div><div className="eyebrow">Coordinación · Help Desk</div><div className="h1">{titulo}</div></div>
         <div className="toolbar">
+          <BuscaNombre value={q} setValue={setQ} />
           {priv && <MesaSelector mesa={mesa} setMesa={setMesa} />}
           {turnos.length > 1 && (
             <select className="inp dateinp" value={turno} onChange={(e) => setTurno(e.target.value)}>
@@ -2773,15 +2806,15 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
           <input type="date" className="inp dateinp" value={monday} onChange={(e) => { const d = new Date(e.target.value + "T12:00:00"); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); setMonday(d.toISOString().slice(0, 10)); }} />
         </div>
       </div>
-      <div className="sub small mt3">Semana: {semLabel} · <b>{personas.length}</b> persona(s)</div>
+      <div className="sub small mt3">Semana: {semLabel} · <b>{personasVistas.length}</b> persona(s)</div>
 
       <div className="card nopad mt15">
         <div className="tblscroll">
-          {loading ? <div className="empty pad24">Cargando…</div> : personas.length === 0 ? <div className="empty pad24">No hay horarios cargados para esta semana{mesa || turno ? " con ese filtro" : ""}.</div> :
+          {loading ? <div className="empty pad24">Cargando…</div> : personasVistas.length === 0 ? <div className="empty pad24">No hay horarios cargados para esta semana{mesa || turno || q ? " con ese filtro" : ""}.</div> :
             <table className="tbl horsem">
               <thead><tr><th className="stickyc">Persona</th>{priv && !mesa && <th>Mesa</th>}{DIAS.map((d, i) => <th key={i} className="diacol">{d}<br /><span className="faint tiny">{new Date(_addDays(monday, i) + "T12:00:00").getDate()}</span></th>)}</tr></thead>
               <tbody>
-                {personas.map((p, i) => (
+                {personasVistas.map((p, i) => (
                   <tr key={i}>
                     <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}</div></td>
                     {priv && !mesa && <td><span className="chip bajo s11">{p.mesa ? mesaLabel(p.mesa) : "—"}</span></td>}
