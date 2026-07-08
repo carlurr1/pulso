@@ -1,12 +1,12 @@
 /**
  * Lee el reporte de llamadas del ACD (formato "NS_SOPORTE": una fila por DÍA)
- * y lo agrega por campaña, sacando el PROMEDIO de los días con datos:
+ * y lo agrega por campaña. Calcula tanto el promedio como el total de los días
+ * con datos; quien consume (fusionarLlamadas) aplica el criterio del comité:
  *
- *   Ofrecidas, Atendidas  → promedio diario
- *   NS, NA                → promedio diario, convertido a porcentaje (×100)
- *   AHT (HT)              → promedio diario del tiempo de operación (05_tmo)
+ *   Ofrecidas, Atendidas  → TOTAL (suma de los días)
+ *   NS, NA                → PROMEDIO diario, convertido a porcentaje (×100)
+ *   AHT (HT)              → PROMEDIO diario del tiempo de operación (05_tmo)
  *
- * También guarda los totales (suma) por si se prefieren en vez del promedio.
  * Los encabezados toleran acentos/mayúsculas y aceptan varios alias.
  */
 import * as XLSX from "xlsx";

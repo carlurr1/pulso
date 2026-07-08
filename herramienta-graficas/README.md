@@ -20,8 +20,8 @@ npm run graficas:plantilla                 # → ./plantilla-comite.xlsx
 # 3) Editar el Excel con tus datos reales y generar las imágenes
 npm run graficas -- ./plantilla-comite.xlsx ./salida
 
-# (opcional) Autocompletar Ofrecidas/Atendidas/NS/NA/AHT desde el reporte
-# diario de llamadas del ACD (formato NS_SOPORTE), sacando el promedio:
+# (opcional) Autocompletar Ofrecidas/Atendidas (total) y NS/NA/AHT (promedio)
+# desde el reporte diario de llamadas del ACD (formato NS_SOPORTE):
 npm run graficas -- ./plantilla-comite.xlsx ./salida --llamadas ./NS_SOPORTE.xls
 ```
 
@@ -112,19 +112,19 @@ Los totales por fila, por columna y el total general se calculan solos.
 
 El export diario del ACD (formato `NS_SOPORTE`, **una fila por día**) puede
 alimentar automáticamente los KPIs de llamadas, para no tener que calcularlos a
-mano. La herramienta agrega por campaña y saca el **promedio** de los días con
-datos:
+mano. La herramienta agrega por campaña con el criterio del comité:
 
 | Del reporte | Va a la tarjeta | Cálculo |
 |---|---|---|
-| `Ofrecidas` | Ofrecidas | promedio diario (redondeado) |
-| `Atendidas` | Atendidas | promedio diario (redondeado) |
-| `NS` | Nivel de servicio | promedio diario × 100 (%) |
-| `NA` | Nivel de atención | promedio diario × 100 (%) |
-| `05_tmo` (TMO) | AHT | promedio diario (segundos) |
+| `Ofrecidas` | Ofrecidas | **total** del período (suma) |
+| `Atendidas` | Atendidas | **total** del período (suma) |
+| `NS` | Nivel de servicio | **promedio** diario × 100 (%) |
+| `NA` | Nivel de atención | **promedio** diario × 100 (%) |
+| `05_tmo` (TMO) | AHT | **promedio** diario (segundos) |
 
-El **ratio de contacto** usa el *total* de llamadas atendidas del período
-(suma), no el promedio.
+El **ratio de contacto** usa el total de llamadas atendidas del período.
+**Solicitudes Mail no viene en este reporte**: es un dato manual que editas en
+la columna `SolicitudesMail` de la hoja `Indicadores`.
 
 Cruce por campaña: cada segmento se empata con su campaña usando la columna
 `Campaña` de la hoja `Indicadores` (si falta, se empata por el nombre del
@@ -132,11 +132,8 @@ segmento). Así, si en `Indicadores` pones `Campaña = Soporte`, ese segmento to
 los números de la campaña "Soporte" del reporte.
 
 ```bash
-# Ver la agregación (promedio y total) sin generar imágenes:
+# Ver la agregación sin generar imágenes:
 npm run graficas:llamadas -- ./NS_SOPORTE.xls
-
-# Usar el total del período en vez del promedio:
-npm run graficas -- ./datos.xlsx ./salida --llamadas ./NS_SOPORTE.xls --modo total
 ```
 
 ## Cómo funciona (técnico)

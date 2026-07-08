@@ -21,9 +21,7 @@ if (mapa.size === 0) {
 
 for (const a of mapa.values()) {
   console.log(`\nCampaña: ${a.campana}  (${a.dias} días con datos)`);
-  console.log("  PROMEDIO diario (lo que va al comité):");
-  console.log(`    Ofrecidas ${a.ofrecidas.toFixed(2)} · Atendidas ${a.atendidas.toFixed(2)}`);
-  console.log(`    NS ${a.ns.toFixed(2)}% · NA ${a.na.toFixed(2)}% · AHT ${a.aht.toFixed(2)} seg`);
-  console.log("  TOTAL del período (alternativa, --modo total):");
-  console.log(`    Ofrecidas ${a.ofrecidasTotal} · Atendidas ${a.atendidasTotal}`);
+  console.log("  Lo que va al comité:");
+  console.log(`    Ofrecidas ${a.ofrecidasTotal} · Atendidas ${a.atendidasTotal}   (TOTAL del período)`);
+  console.log(`    NS ${a.ns.toFixed(2)}% · NA ${a.na.toFixed(2)}% · AHT ${a.aht.toFixed(2)} seg   (PROMEDIO diario)`);
 }

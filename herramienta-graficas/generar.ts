@@ -23,11 +23,14 @@ import { SegmentoData } from "./tipos";
 const ESCALA = 3; // deviceScaleFactor → PNG de alta resolución
 
 /**
- * Rellena los KPIs de llamadas (Ofrecidas, Atendidas, NS, NA, AHT) de cada
- * segmento a partir del reporte diario del ACD, cruzando por campaña
- * (columna `Campaña` de la hoja Indicadores; si falta, por nombre de segmento).
+ * Rellena los KPIs de llamadas de cada segmento a partir del reporte diario del
+ * ACD, cruzando por campaña (columna `Campaña` de la hoja Indicadores; si falta,
+ * por nombre de segmento). Criterio del comité:
+ *   Ofrecidas, Atendidas → TOTAL del período (suma de los días).
+ *   NS, NA, AHT          → PROMEDIO de los días con datos.
+ * Solicitudes Mail NO viene aquí: es dato manual de la hoja Indicadores.
  */
-function fusionarLlamadas(segmentos: SegmentoData[], rutaLlamadas: string, modo: "promedio" | "total"): void {
+function fusionarLlamadas(segmentos: SegmentoData[], rutaLlamadas: string): void {
   const agregados = leerLlamadas(rutaLlamadas);
   for (const seg of segmentos) {
     const clave = norm(seg.campana || seg.segmento);
@@ -36,18 +39,16 @@ function fusionarLlamadas(segmentos: SegmentoData[], rutaLlamadas: string, modo:
       console.warn(`  ⚠ Sin datos de llamadas para "${seg.segmento}" (campaña: ${seg.campana || seg.segmento}).`);
       continue;
     }
-    seg.indicadores.ofrecidas = modo === "total" ? a.ofrecidasTotal : Math.round(a.ofrecidas);
-    seg.indicadores.atendidas = modo === "total" ? a.atendidasTotal : Math.round(a.atendidas);
-    // El ratio de contacto es del período completo → usa el TOTAL de atendidas,
-    // no el promedio diario (aunque la tarjeta "Atendidas" muestre el promedio).
-    seg.indicadores.llamadasAtendidas = a.atendidasTotal;
-    seg.indicadores.nivelServicio = a.ns;
-    seg.indicadores.nivelAtencion = a.na;
-    seg.indicadores.ahtSeg = a.aht;
+    seg.indicadores.ofrecidas = a.ofrecidasTotal;
+    seg.indicadores.atendidas = a.atendidasTotal;
+    seg.indicadores.llamadasAtendidas = a.atendidasTotal; // total, para el ratio de contacto
+    seg.indicadores.nivelServicio = a.ns; // promedio
+    seg.indicadores.nivelAtencion = a.na; // promedio
+    seg.indicadores.ahtSeg = a.aht; // promedio
     console.log(
       `  ↳ ${seg.segmento} ← campaña "${a.campana}" (${a.dias} días): ` +
-        `Ofr ${seg.indicadores.ofrecidas} · Ate ${seg.indicadores.atendidas} · ` +
-        `NS ${a.ns.toFixed(2)}% · NA ${a.na.toFixed(2)}% · AHT ${a.aht.toFixed(0)}s`
+        `Ofr ${a.ofrecidasTotal} · Ate ${a.atendidasTotal} (totales) · ` +
+        `NS ${a.ns.toFixed(2)}% · NA ${a.na.toFixed(2)}% · AHT ${a.aht.toFixed(0)}s (promedios)`
     );
   }
 }
@@ -94,7 +95,6 @@ async function main() {
   // posicionales = los que no son flags ni valor de flag
   const args = process.argv.slice(2);
   const rutaLlamadas = flag("llamadas");
-  const modo = (flag("modo") as "promedio" | "total") || "promedio";
   const posicionales: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -107,7 +107,7 @@ async function main() {
   const [archivo, salidaArg] = posicionales;
 
   if (!archivo) {
-    console.error("Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>] [--modo promedio|total]");
+    console.error("Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>]");
     process.exit(1);
   }
   if (!fs.existsSync(archivo)) {
@@ -128,8 +128,8 @@ async function main() {
       console.error(`No existe el archivo de llamadas: ${rutaLlamadas}`);
       process.exit(1);
     }
-    console.log(`Cruzando llamadas (modo ${modo}) desde ${path.basename(rutaLlamadas)}:`);
-    fusionarLlamadas(segmentos, rutaLlamadas, modo);
+    console.log(`Cruzando llamadas desde ${path.basename(rutaLlamadas)}:`);
+    fusionarLlamadas(segmentos, rutaLlamadas);
   }
 
   const html = paginaCompleta(segmentos, logoDataUri());
