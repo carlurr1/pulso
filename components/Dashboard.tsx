@@ -1927,7 +1927,9 @@ function UserConfig({ fire }: { fire: (m: string) => void }) {
 
   // Carga masiva: pega filas separadas por TAB (desde Excel) o coma.
   // Columnas: Usuario, Nombre, Apellido, Cargo, Rol, Mesa, Código/Cédula, Correo
-  const parseMasivo = (txt: string) => txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+  // No recortamos la línea completa (eso borraría el primer TAB y correría las
+  // columnas cuando "Usuario" viene vacío); solo saltamos líneas en blanco.
+  const parseMasivo = (txt: string) => txt.split(/\r?\n/).filter((l) => l.trim() !== "").map((l) => {
     const c = l.split(/\t|,|;/).map((x) => x.trim());
     return { login: c[0] ?? "", nombre: c[1] ?? "", apellido: c[2] ?? "", cargo: c[3] || "Agente", rol: (c[4] || "agente").toLowerCase() as Rol, mesa: (c[5] || "MAYORISTAS").toUpperCase(), code: c[6] ?? "", email_real: c[7] ?? "" };
   }).filter((r) => r.nombre || r.login);   // basta con nombre; el usuario puede autogenerarse
