@@ -214,13 +214,14 @@ export async function getEquipoRepartir(miMesa?: string | null): Promise<Usuario
 }
 
 export async function repartirSeguimiento(opts: {
-  userId: string; seniorId: string; casos: string[]; fecha?: string;
+  userId: string; seniorId: string; casos: string[]; fecha?: string; critico?: boolean;
 }) {
   const sb = createClient();
   const fecha = opts.fecha ?? hoy();
   const filas = opts.casos.map((c) => ({
     user_id: opts.userId, numero_caso: c.trim(), fecha,
     estado: "pendiente" as const, asignado_por: opts.seniorId,
+    critico: !!opts.critico,   // los críticos salen en rojo y primero en la bandeja
   }));
   // upsert evita duplicar un caso ya asignado ese día (índice único fecha+user+caso).
   const { error } = await sb.from("asignaciones")
@@ -228,6 +229,14 @@ export async function repartirSeguimiento(opts: {
   if (error) throw error;
   // Trae la foto del caso desde Salesforce en segundo plano (no bloquea la UI).
   enriquecerCasos(opts.casos).catch(() => {});
+}
+
+// Marcar / desmarcar un caso como CRÍTICO (rojo, se revisa primero).
+// El senior de la mesa o el propio analista pueden hacerlo (RLS asig_update).
+export async function marcarCritico(id: string, critico: boolean) {
+  const sb = createClient();
+  const { error } = await sb.from("asignaciones").update({ critico }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function quitarAsignacion(id: string) {

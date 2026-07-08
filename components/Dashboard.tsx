@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon, Flame,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -232,7 +232,13 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
   const casosVisibles = bandeja.filter((a) =>
     filtroCaso === "todos" ? true :
     filtroCaso === "atrasado" ? (a.fecha < hoy() && a.estado !== "gestionado") :
-    a.estado === filtroCaso);
+    a.estado === filtroCaso)
+    // Los críticos sin cerrar van primero para que se revisen antes.
+    .sort((a, b) => {
+      const ca = (a as any).critico && a.estado !== "gestionado" ? 1 : 0;
+      const cb = (b as any).critico && b.estado !== "gestionado" ? 1 : 0;
+      return cb - ca;
+    });
   const lastGestOf = (id: string) => actividad.find((g) => g.asignacion_id === id);
   const tName = (id: string) => catalogo.find((c) => c.id === id)?.nombre ?? "—";
   const tCat = (id: string) => catalogo.find((c) => c.id === id)?.categoria ?? "casos";
@@ -255,7 +261,9 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         const n = await data.crearCasosMasivo({ destinoId, tipoId, casos: masivoPayload.casos, minutos: min, cerrar: masivoPayload.cerrar });
         const dest = equipo.find((u) => u.id === destinoId);
         setModal(null);
-        fire(`${n} caso(s) creados — ${masivoPayload.cerrar ? "cerrados" : "en la bandeja de"} ${dest ? dest.nombre : (destinoId === perfil.id ? "ti" : "el analista")}`);
+        // Cierre a mi nombre (p. ej. casos cancelados): "N caso(s) cerrados".
+        if (masivoPayload.cerrar && destinoId === perfil.id) fire(`${n} caso(s) cerrados`);
+        else fire(`${n} caso(s) creados — ${masivoPayload.cerrar ? "cerrados" : "en la bandeja de"} ${dest ? dest.nombre : (destinoId === perfil.id ? "ti" : "el analista")}`);
         reload();
         return;
       }
@@ -417,12 +425,14 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
           <div className="col10">
             {casosVisibles.map((a) => {
               const lg = lastGestOf(a.id);
+              const critico = (a as any).critico && a.estado !== "gestionado";
               return (
-                <div key={a.id} className="casecard">
+                <div key={a.id} className={"casecard" + (critico ? " crit" : "")}>
                   <div className="min0">
                     <div className="caseno">#{a.numero_caso}</div>
                     {(a as any).cliente && <div className="caseCli">{(a as any).cliente}</div>}
                     <div className="caseMeta">
+                      {critico && <span className="chip crit"><Flame size={11} />Crítico</span>}
                       {a.estado === "gestionado" ? <span className="chip done"><Check size={11} />Cerrado por hoy</span>
                         : a.estado === "progreso" ? <span className="chip prog"><CircleDot size={11} />En progreso</span>
                           : <span className="chip pend">Pendiente</span>}
@@ -488,8 +498,11 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
   // Creación de caso: al ser un caso NUEVO, puede quedarse en mi bandeja o pasárselo a otra persona.
   const nombreSel = tipos.find((g: GestionTipo) => g.id === tipoId)?.nombre?.toUpperCase().trim();
   const esCreacion = modal.nuevo && nombreSel === "CREACIÓN DE CASO";
+  // Casos cancelados: se pegan varios y se cierran todos de una vez.
+  const cancelMasivo = nombreSel === "CASOS CANCELADOS" && !modal.asignacion;
+  const masivoOn = masivo || cancelMasivo;
   const otros = equipo.filter((u: Usuario) => u.id !== yoId);
-  const valid = tipoId && (sinCaso || (masivo ? casosMasivos.length > 0 : caso.trim())) && min && +min > 0;
+  const valid = tipoId && (sinCaso || (masivoOn ? casosMasivos.length > 0 : caso.trim())) && min && +min > 0;
   const title = modal.nuevo ? "Agregar caso nuevo" : modal.libre ? "Gestión sin caso asignado" : "Registrar gestión";
 
   return (
@@ -517,14 +530,17 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 );
               })}
             </div>
-            {(esCreacion || (modal.libre && !sinCaso)) && (
+            {(esCreacion || (modal.libre && !sinCaso)) && !cancelMasivo && (
               <label className="lbl mt16" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 <input type="checkbox" checked={masivo} onChange={(e) => setMasivo(e.target.checked)} />
                 {esCreacion ? "Creación masiva (varios casos de una vez)" : "Varios casos (pego varios y registro esta gestión en todos)"}
               </label>
             )}
-            <div className={"grid mt16" + (sinCaso || masivo ? "" : " minutosrow")}>
-              {!sinCaso && (masivo ? (
+            {cancelMasivo && (
+              <div className="warnbox mt16"><Flame size={15} /><span>Pega los casos cancelados: se registrarán y se <b>cerrarán todos</b> de una vez.</span></div>
+            )}
+            <div className={"grid mt16" + (sinCaso || masivoOn ? "" : " minutosrow")}>
+              {!sinCaso && (masivoOn ? (
                 <div><label className="lbl">Números de caso — uno por línea o separados por coma</label>
                   <textarea className="inp mono" value={bulkCaso} placeholder={"012345678\n012345679"} onChange={(e) => setBulkCaso(e.target.value)} />
                   {casosMasivos.length > 0 && <div className="sub small mt3">{casosMasivos.length} caso(s) detectado(s)</div>}
@@ -604,10 +620,12 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
             <button className="btn ghost" onClick={onClose}>Cancelar</button>
             <button className="btn primary" disabled={!valid || busy} onClick={async () => {
               if (sinCaso) { setBusy(true); await onSave(modal, tipoId, "", +min, false); }
+              // Casos cancelados: registra y CIERRA todos los casos pegados (quedan a mi nombre).
+              else if (cancelMasivo) { setBusy(true); await onSave(modal, tipoId, "", +min, false, yoId, { casos: casosMasivos, cerrar: true }); }
               // Gestión sin caso en lote (bolsa de otros): registra la gestión en todos los casos pegados.
               else if (modal.libre && masivo) { setBusy(true); await onSave(modal, tipoId, "", +min, false, null, { casos: casosMasivos, cerrar: false }); }
               else setStep(2);
-            }}>{modal.libre && masivo ? `Registrar en ${casosMasivos.length || ""} caso(s)` : "Continuar"}</button>
+            }}>{cancelMasivo ? `Cancelar y cerrar ${casosMasivos.length || ""} caso(s)` : modal.libre && masivo ? `Registrar en ${casosMasivos.length || ""} caso(s)` : "Continuar"}</button>
           </div>
         )}
       </div>
@@ -621,6 +639,7 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   const [sel, setSel] = useState<string>("");
   const [bandeja, setBandeja] = useState<any[]>([]);
   const [bulk, setBulk] = useState("");
+  const [critico, setCritico] = useState(false);
 
   // El senior reparte dentro de su mesa; y a todo el grupo si es mixto (Élite+Distrito).
   useEffect(() => { data.getEquipoRepartir(perfil.mesa).then((ag) => { setEquipo(ag); setSel(ag[0]?.id ?? ""); }); }, [perfil.mesa]);
@@ -631,13 +650,18 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     const casos = bulk.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
     if (!casos.length) return;
     try {
-      await data.repartirSeguimiento({ userId: sel, seniorId: perfil.id, casos });
-      pushUsuarios([sel], "Nuevos casos en tu bandeja", `${perfil.nombre} te asignó ${casos.length} caso(s)`).catch(() => {});
-      setBulk(""); fire(`${casos.length} caso(s) asignados a ${target?.nombre}`);
+      await data.repartirSeguimiento({ userId: sel, seniorId: perfil.id, casos, critico });
+      pushUsuarios([sel], "Nuevos casos en tu bandeja", `${perfil.nombre} te asignó ${casos.length} caso(s)${critico ? " CRÍTICO(s)" : ""}`).catch(() => {});
+      setBulk(""); setCritico(false); fire(`${casos.length} caso(s) asignados a ${target?.nombre}${critico ? " · marcados como críticos" : ""}`);
       data.getMiBandeja(sel).then(setBandeja);
     } catch (e: any) { fire("Error: " + e.message); }
   };
   const quitar = async (id: string) => { await data.quitarAsignacion(id); data.getMiBandeja(sel).then(setBandeja); };
+  // Marcar/desmarcar un caso puntual como crítico desde la bandeja actual.
+  const toggleCritico = async (a: any) => {
+    try { await data.marcarCritico(a.id, !a.critico); data.getMiBandeja(sel).then(setBandeja); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo marcar")); }
+  };
 
   // Contenedor general de MI mesa: los casos que otras mesas nos enviaron.
   const [pool, setPool] = useState<any[]>([]);
@@ -688,7 +712,12 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
             <div className="h2 mb4">Asignar a {target ? firstLast(target.nombre, target.apellido) : ""}</div>
             <div className="sub small mb12">Pega los números de caso — uno por línea, o separados por coma.</div>
             <textarea className="inp" value={bulk} placeholder={"012345678\n012345679"} onChange={(e) => setBulk(e.target.value)} />
-            <div className="row-end mt12"><button className="btn primary" disabled={!bulk.trim()} onClick={repartir}><Plus size={16} />Asignar a la bandeja</button></div>
+            <label className="critcheck mt12" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+              <input type="checkbox" checked={critico} onChange={(e) => setCritico(e.target.checked)} />
+              <Flame size={14} color="var(--danger)" />
+              <span>Marcar como <b>críticos</b> — le aparecerán en rojo y de primeros para revisarlos antes</span>
+            </label>
+            <div className="row-end mt12"><button className={"btn " + (critico ? "danger-outline" : "primary")} disabled={!bulk.trim()} onClick={repartir}><Plus size={16} />Asignar a la bandeja</button></div>
           </div>
 
           {pool.length > 0 && (
@@ -720,11 +749,20 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
             <div className="row-between mb12"><div className="h2">Bandeja actual</div><span className="chip neutral">{bandeja.length} casos</span></div>
             {bandeja.length === 0 ? <div className="empty pad24">Sin casos asignados todavía.</div> :
               <div className="wrap8">
-                {bandeja.map((a) => (
-                  <div key={a.id} className="caseChip">
+                {[...bandeja].sort((a, b) => {
+                  const ca = a.critico && a.estado !== "gestionado" ? 1 : 0;
+                  const cb = b.critico && b.estado !== "gestionado" ? 1 : 0;
+                  return cb - ca;
+                }).map((a) => (
+                  <div key={a.id} className={"caseChip" + (a.critico && a.estado !== "gestionado" ? " crit" : "")}>
                     <span className="mono caseChipNo">#{a.numero_caso}</span>
                     {(a as any).cliente && <span className="caseChipCli">{(a as any).cliente}</span>}
                     {a.estado === "gestionado" ? <Check size={13} color="var(--ok)" /> : a.estado === "progreso" ? <CircleDot size={13} color="var(--warn)" /> : null}
+                    {a.estado !== "gestionado" && (
+                      <button className={"xbtn tiny" + (a.critico ? " on" : "")} title={a.critico ? "Quitar crítico" : "Marcar como crítico"} onClick={() => toggleCritico(a)}>
+                        <Flame size={12} color={a.critico ? "var(--danger)" : "currentColor"} />
+                      </button>
+                    )}
                     {a.estado === "pendiente" && reasignando !== a.id && (
                       <button className="xbtn tiny" title="Pasar a otro analista" onClick={() => setReasignando(a.id)}><ArrowRight size={12} /></button>
                     )}
