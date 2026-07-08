@@ -15,9 +15,42 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import { leerLibro } from "./leer-excel";
+import { leerLlamadas } from "./leer-llamadas";
 import { paginaCompleta } from "./plantilla";
+import { norm } from "./util";
+import { SegmentoData } from "./tipos";
 
 const ESCALA = 3; // deviceScaleFactor → PNG de alta resolución
+
+/**
+ * Rellena los KPIs de llamadas (Ofrecidas, Atendidas, NS, NA, AHT) de cada
+ * segmento a partir del reporte diario del ACD, cruzando por campaña
+ * (columna `Campaña` de la hoja Indicadores; si falta, por nombre de segmento).
+ */
+function fusionarLlamadas(segmentos: SegmentoData[], rutaLlamadas: string, modo: "promedio" | "total"): void {
+  const agregados = leerLlamadas(rutaLlamadas);
+  for (const seg of segmentos) {
+    const clave = norm(seg.campana || seg.segmento);
+    const a = agregados.get(clave);
+    if (!a) {
+      console.warn(`  ⚠ Sin datos de llamadas para "${seg.segmento}" (campaña: ${seg.campana || seg.segmento}).`);
+      continue;
+    }
+    seg.indicadores.ofrecidas = modo === "total" ? a.ofrecidasTotal : Math.round(a.ofrecidas);
+    seg.indicadores.atendidas = modo === "total" ? a.atendidasTotal : Math.round(a.atendidas);
+    // El ratio de contacto es del período completo → usa el TOTAL de atendidas,
+    // no el promedio diario (aunque la tarjeta "Atendidas" muestre el promedio).
+    seg.indicadores.llamadasAtendidas = a.atendidasTotal;
+    seg.indicadores.nivelServicio = a.ns;
+    seg.indicadores.nivelAtencion = a.na;
+    seg.indicadores.ahtSeg = a.aht;
+    console.log(
+      `  ↳ ${seg.segmento} ← campaña "${a.campana}" (${a.dias} días): ` +
+        `Ofr ${seg.indicadores.ofrecidas} · Ate ${seg.indicadores.atendidas} · ` +
+        `NS ${a.ns.toFixed(2)}% · NA ${a.na.toFixed(2)}% · AHT ${a.aht.toFixed(0)}s`
+    );
+  }
+}
 
 /** Ubica el Chromium: variable de entorno o el preinstalado en /opt/pw-browsers. */
 function rutaChromium(): string | undefined {
@@ -47,10 +80,34 @@ function logoDataUri(): string {
   return `data:image/png;base64,${fs.readFileSync(p).toString("base64")}`;
 }
 
+/** Lee un flag "--nombre valor" o "--nombre=valor" de argv. */
+function flag(nombre: string): string | undefined {
+  const args = process.argv.slice(2);
+  const i = args.findIndex((a) => a === `--${nombre}` || a.startsWith(`--${nombre}=`));
+  if (i < 0) return undefined;
+  const a = args[i];
+  if (a.includes("=")) return a.slice(a.indexOf("=") + 1);
+  return args[i + 1];
+}
+
 async function main() {
-  const [, , archivo, salidaArg] = process.argv;
+  // posicionales = los que no son flags ni valor de flag
+  const args = process.argv.slice(2);
+  const rutaLlamadas = flag("llamadas");
+  const modo = (flag("modo") as "promedio" | "total") || "promedio";
+  const posicionales: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith("--")) {
+      if (!a.includes("=")) i++; // saltar el valor del flag
+      continue;
+    }
+    posicionales.push(a);
+  }
+  const [archivo, salidaArg] = posicionales;
+
   if (!archivo) {
-    console.error("Uso: npm run graficas -- <ruta-del-excel> [carpeta-de-salida]");
+    console.error("Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>] [--modo promedio|total]");
     process.exit(1);
   }
   if (!fs.existsSync(archivo)) {
@@ -65,6 +122,15 @@ async function main() {
     process.exit(1);
   }
   console.log(`Segmentos encontrados: ${segmentos.map((s) => s.segmento).join(", ")}`);
+
+  if (rutaLlamadas) {
+    if (!fs.existsSync(rutaLlamadas)) {
+      console.error(`No existe el archivo de llamadas: ${rutaLlamadas}`);
+      process.exit(1);
+    }
+    console.log(`Cruzando llamadas (modo ${modo}) desde ${path.basename(rutaLlamadas)}:`);
+    fusionarLlamadas(segmentos, rutaLlamadas, modo);
+  }
 
   const html = paginaCompleta(segmentos, logoDataUri());
 

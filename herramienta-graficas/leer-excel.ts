@@ -21,39 +21,7 @@ import {
   PuntoSerie,
   SegmentoData,
 } from "./tipos";
-
-/** Quita acentos, espacios y pasa a minúsculas para comparar encabezados. */
-function norm(s: unknown): string {
-  return String(s ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toLowerCase();
-}
-
-type Fila = Record<string, unknown>;
-
-/** Devuelve el valor de la primera columna cuyo encabezado coincida con un alias. */
-function col(fila: Fila, ...alias: string[]): unknown {
-  const normAlias = alias.map(norm);
-  for (const clave of Object.keys(fila)) {
-    if (normAlias.includes(norm(clave))) return fila[clave];
-  }
-  return undefined;
-}
-
-function num(v: unknown, def = 0): number {
-  if (v === undefined || v === null || v === "") return def;
-  if (typeof v === "number") return v;
-  // admite "97,98" o "97.98"
-  const n = parseFloat(String(v).replace(/\s/g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : def;
-}
-
-function txt(v: unknown, def = ""): string {
-  if (v === undefined || v === null) return def;
-  return String(v).trim() || def;
-}
+import { col, Fila, norm, num, txt } from "./util";
 
 /** Segmento de una fila (varios alias). */
 function segDe(fila: Fila): string {
@@ -134,6 +102,7 @@ export function leerLibro(ruta: string): SegmentoData[] {
 
       return {
         segmento,
+        campana: txt(col(f, "Campaña", "Campana", "Cola", "Skill")) || undefined,
         indicadores,
         evolutivo: serie(evolutivo, ["Periodo", "Semana", "Etiqueta"], ["Abiertos", "Casos", "Valor"]),
         casosMes: serie(casosMes, ["Mes", "Periodo", "Etiqueta"], ["Casos", "Valor", "Finales"]),

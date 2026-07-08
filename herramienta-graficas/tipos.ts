@@ -60,6 +60,8 @@ export type Indicadores = {
 /** Todo lo que necesita un segmento para armar su tablero. */
 export type SegmentoData = {
   segmento: string;
+  /** Nombre de la campaña en el reporte de llamadas (para autocompletar KPIs). */
+  campana?: string;
   indicadores: Indicadores;
   evolutivo: PuntoSerie[]; // "Detalle casos falla técnica" (semanal)
   casosMes: PuntoSerie[]; // "Comportamiento de casos finales por mes"

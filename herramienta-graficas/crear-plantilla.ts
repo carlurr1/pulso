@@ -45,6 +45,7 @@ const indicadores = SEGMENTOS.map((seg) => {
   const f = FACTOR[seg];
   return {
     Segmento: seg,
+    Campaña: seg, // nombre de la campaña en el reporte de llamadas del ACD
     Corte: CORTE,
     NivelServicio: +(Math.min(99.9, BASE.nivelServicio - (1 - f) * 4)).toFixed(2),
     NivelAtencion: +(Math.min(99.9, BASE.nivelAtencion - (1 - f) * 2)).toFixed(2),

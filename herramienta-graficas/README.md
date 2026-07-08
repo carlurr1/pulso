@@ -19,6 +19,10 @@ npm run graficas:plantilla                 # → ./plantilla-comite.xlsx
 
 # 3) Editar el Excel con tus datos reales y generar las imágenes
 npm run graficas -- ./plantilla-comite.xlsx ./salida
+
+# (opcional) Autocompletar Ofrecidas/Atendidas/NS/NA/AHT desde el reporte
+# diario de llamadas del ACD (formato NS_SOPORTE), sacando el promedio:
+npm run graficas -- ./plantilla-comite.xlsx ./salida --llamadas ./NS_SOPORTE.xls
 ```
 
 Resultado:
@@ -104,13 +108,47 @@ ordenan; el total por categoría se calcula solo.
 
 Los totales por fila, por columna y el total general se calculan solos.
 
+## Reporte de llamadas del ACD (opcional, `--llamadas`)
+
+El export diario del ACD (formato `NS_SOPORTE`, **una fila por día**) puede
+alimentar automáticamente los KPIs de llamadas, para no tener que calcularlos a
+mano. La herramienta agrega por campaña y saca el **promedio** de los días con
+datos:
+
+| Del reporte | Va a la tarjeta | Cálculo |
+|---|---|---|
+| `Ofrecidas` | Ofrecidas | promedio diario (redondeado) |
+| `Atendidas` | Atendidas | promedio diario (redondeado) |
+| `NS` | Nivel de servicio | promedio diario × 100 (%) |
+| `NA` | Nivel de atención | promedio diario × 100 (%) |
+| `05_tmo` (TMO) | AHT | promedio diario (segundos) |
+
+El **ratio de contacto** usa el *total* de llamadas atendidas del período
+(suma), no el promedio.
+
+Cruce por campaña: cada segmento se empata con su campaña usando la columna
+`Campaña` de la hoja `Indicadores` (si falta, se empata por el nombre del
+segmento). Así, si en `Indicadores` pones `Campaña = Soporte`, ese segmento toma
+los números de la campaña "Soporte" del reporte.
+
+```bash
+# Ver la agregación (promedio y total) sin generar imágenes:
+npm run graficas:llamadas -- ./NS_SOPORTE.xls
+
+# Usar el total del período en vez del promedio:
+npm run graficas -- ./datos.xlsx ./salida --llamadas ./NS_SOPORTE.xls --modo total
+```
+
 ## Cómo funciona (técnico)
 
 - **`crear-plantilla.ts`** — escribe el Excel de ejemplo.
 - **`leer-excel.ts`** — lee el libro con `xlsx` y arma un `SegmentoData` por segmento.
+- **`leer-llamadas.ts`** — agrega el reporte diario del ACD por campaña (promedios).
 - **`plantilla.ts`** — construye el HTML/SVG del tablero con el estilo eTb.
 - **`generar.ts`** — renderiza el HTML en Chromium (headless, vía `playwright-core`)
   y recorta cada bloque a PNG a 3x.
+- **`llamadas.ts`** — CLI para inspeccionar la agregación de llamadas.
+- **`util.ts`** — helpers de lectura de Excel (encabezados flexibles).
 
 No requiere red ni descargar navegadores: usa el Chromium ya instalado en el
 entorno. Si necesitas apuntar a otro binario, exporta `PLAYWRIGHT_CHROMIUM`.
