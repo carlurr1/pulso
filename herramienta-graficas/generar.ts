@@ -16,7 +16,9 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { leerLibro } from "./leer-excel";
 import { leerLlamadas } from "./leer-llamadas";
-import { CorreoModo, claveSegmento, leerSemaforo } from "./leer-semaforo";
+import { CorreoModo, claveSegmento, leerSemaforo, mapaNitSegmento } from "./leer-semaforo";
+import { leerClientes } from "./leer-clientes";
+import { leerBolsa } from "./leer-bolsa";
 import { paginaCompleta } from "./plantilla";
 import { norm } from "./util";
 import { SegmentoData } from "./tipos";
@@ -108,6 +110,35 @@ function fusionarSemaforo(segmentos: SegmentoData[], rutaSemaforo: string, modoC
   }
 }
 
+/**
+ * Rellena la bolsa de INC (tabla estado × días) de cada segmento. El segmento
+ * de cada caso se resuelve por NIT: primero contra la base de clientes y, si no
+ * está, contra el mapa del semáforo (respaldo).
+ */
+function fusionarBolsa(
+  segmentos: SegmentoData[],
+  rutaBolsa: string,
+  rutaClientes: string | undefined,
+  rutaSemaforo: string | undefined
+): void {
+  const clientes = rutaClientes ? leerClientes(rutaClientes) : new Map<string, string>();
+  const respaldo = rutaSemaforo ? mapaNitSegmento(rutaSemaforo) : new Map<string, string>();
+  const segmentoDeNit = (nit: string) => clientes.get(nit) || respaldo.get(nit);
+
+  const { porSegmento, total, clasificados, sinSegmento } = leerBolsa(rutaBolsa, { segmentoDeNit });
+  console.log(
+    `  Casos OTROS: ${total} · clasificados ${clasificados} (${((clasificados / total) * 100 || 0).toFixed(0)}%) · sin segmento ${sinSegmento}` +
+      (rutaClientes ? "" : "  [sin base de clientes: solo respaldo semáforo]")
+  );
+
+  for (const seg of segmentos) {
+    const filas = porSegmento.get(claveSegmento(seg.segmento)) || [];
+    seg.bolsa = filas;
+    const n = filas.reduce((s, f) => s + f.cantidad, 0);
+    if (n) console.log(`  ↳ ${seg.segmento}: ${n} INC en bolsa`);
+  }
+}
+
 /** Lee un flag "--nombre valor" o "--nombre=valor" de argv. */
 function flag(nombre: string): string | undefined {
   const args = process.argv.slice(2);
@@ -123,6 +154,8 @@ async function main() {
   const args = process.argv.slice(2);
   const rutaLlamadas = flag("llamadas");
   const rutaSemaforo = flag("semaforo");
+  const rutaBolsa = flag("bolsa");
+  const rutaClientes = flag("clientes");
   const modoCorreo = (flag("correo") as CorreoModo) || "todos";
   const posicionales: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -138,7 +171,8 @@ async function main() {
   if (!archivo) {
     console.error(
       "Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>] " +
-        "[--semaforo <semaforo.xlsx>] [--correo todos|electronico]"
+        "[--semaforo <semaforo.xlsx>] [--correo todos|electronico] " +
+        "[--bolsa <bolsa.xlsx>] [--clientes <base.xlsx>]"
     );
     process.exit(1);
   }
@@ -171,6 +205,15 @@ async function main() {
     }
     console.log(`Cruzando semáforo (correo: ${modoCorreo}) desde ${path.basename(rutaSemaforo)}:`);
     fusionarSemaforo(segmentos, rutaSemaforo, modoCorreo);
+  }
+
+  if (rutaBolsa) {
+    if (!fs.existsSync(rutaBolsa)) {
+      console.error(`No existe el archivo de bolsa: ${rutaBolsa}`);
+      process.exit(1);
+    }
+    console.log(`Cruzando bolsa INC desde ${path.basename(rutaBolsa)}:`);
+    fusionarBolsa(segmentos, rutaBolsa, rutaClientes, rutaSemaforo);
   }
 
   const html = paginaCompleta(segmentos, logoDataUri());

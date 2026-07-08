@@ -178,12 +178,36 @@ npm run graficas -- ./datos.xlsx ./salida \
 `--correo todos` cuenta cualquier origen que "diga correo" (incluye *Correo
 Automático*); `--correo electronico` cuenta solo *Correo electrónico* (manual).
 
+## Bolsa de INC en gestión (opcional, `--bolsa`)
+
+El archivo `Bolsa_*.xlsx` (hoja **`BOLSA`**, encabezado en la 2ª fila) arma la
+tabla "Bolsa actual INC en gestión" por segmento:
+
+- Filtro: **`RESPONSABLE = OTROS`** (columna BM) — es la bolsa de OTROS.
+- **Filas** = `ESTADO` del incidente · **Columnas** = `DIAS_ABIERTO` (antigüedad).
+- **Segmento**: la bolsa no trae segmento, se resuelve por **`NIT`**:
+  1. contra la **base de clientes** (`--clientes`, NIT → Segmento) — recomendado;
+  2. como respaldo, contra el semáforo (`--semaforo`).
+
+Solo con el respaldo del semáforo la cobertura es ~68% (clientes con INC abierto
+pero sin casos cerrados no aparecen); con la base de clientes es completa.
+
+```bash
+npm run graficas -- ./datos.xlsx ./salida \
+  --semaforo ./ETB_Semaforo_Soporte.xlsx \
+  --bolsa ./Bolsa_08072026.xlsx --clientes ./base_clientes.xlsx
+```
+
+La base de clientes es cualquier hoja con una columna de identificación
+(`NIT` / `Número de Identificación` / `Documento`) y una de `Segmento`.
+
 ## Cómo funciona (técnico)
 
 - **`crear-plantilla.ts`** — escribe el Excel de ejemplo.
 - **`leer-excel.ts`** — lee el libro con `xlsx` y arma un `SegmentoData` por segmento.
 - **`leer-llamadas.ts`** — agrega el reporte diario del ACD por campaña (promedios).
-- **`leer-semaforo.ts`** — calcula los indicadores operativos por segmento desde `BBDD`.
+- **`leer-semaforo.ts`** — indicadores operativos por segmento (Sin COFO + desglose BBDD).
+- **`leer-bolsa.ts`** / **`leer-clientes.ts`** — bolsa de INC por segmento y base NIT→Segmento.
 - **`plantilla.ts`** — construye el HTML/SVG del tablero con el estilo eTb.
 - **`generar.ts`** — renderiza el HTML en Chromium (headless, vía `playwright-core`)
   y recorta cada bloque a PNG a 3x.

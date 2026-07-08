@@ -58,6 +58,26 @@ export function diasAHms(dias: number): string {
 
 const prom = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
+/**
+ * Mapa NIT → clave de segmento a partir de la BBDD del semáforo. Sirve como
+ * respaldo para clasificar la bolsa de INC cuando un NIT no está en la base de
+ * clientes. Solo dígitos en la llave.
+ */
+export function mapaNitSegmento(ruta: string): Map<string, string> {
+  const wb = XLSX.readFile(ruta);
+  const nombreHoja = wb.SheetNames.find((n) => norm(n) === "bbdd") || wb.SheetNames[0];
+  const filas = XLSX.utils.sheet_to_json<Fila>(wb.Sheets[nombreHoja], { defval: "" });
+  const m = new Map<string, string>();
+  for (const f of filas) {
+    const nit = String(col(f, "Número de Identificación", "Numero de Identificacion", "NIT") ?? "")
+      .replace(/\.0+$/, "")
+      .replace(/[^0-9]/g, "");
+    const seg = txt(col(f, "Segmento"));
+    if (nit && seg && !/sinmesa|novan/.test(norm(seg)) && !m.has(nit)) m.set(nit, claveSegmento(seg));
+  }
+  return m;
+}
+
 /* --------- lectura de las tablas dinámicas oficiales (Sin COFO) ---------- */
 
 type Grid = unknown[][];
