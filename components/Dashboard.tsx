@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
@@ -793,6 +793,18 @@ const matchNombre = (q: string, ...campos: (string | null | undefined)[]) => {
   return t.split(/\s+/).every((p) => hay.includes(p));   // todas las palabras deben aparecer
 };
 
+// Abrir el perfil de una persona desde cualquier lista (nombre clicable).
+const PerfilCtx = createContext<(u: { id: string; nombre: string }) => void>(() => {});
+function PersonaLink({ id, nombre, clip = false }: { id?: string | null; nombre: string; clip?: boolean }) {
+  const abrir = useContext(PerfilCtx);
+  if (!id) return <>{nombre}</>;
+  return (
+    <button type="button" className={"plink" + (clip ? " cellclip" : "")} title={"Ver perfil de " + nombre} onClick={() => abrir({ id, nombre })}>
+      {nombre}
+    </button>
+  );
+}
+
 // Buscador con lupa, reutilizable en las listas de personas.
 function BuscaNombre({ value, setValue, placeholder = "Buscar por nombre…" }: { value: string; setValue: (v: string) => void; placeholder?: string }) {
   return (
@@ -948,7 +960,7 @@ function CoordView({ tab = "tablero" }: { tab?: "tablero" | "auditoria" }) {
                   {ranking.filter((r) => (persona ? r.user_id === persona : (r.gestiones > 0 || r.asignados > 0))).map((r, i) => (
                     <tr key={r.user_id}>
                       <td className="mono soft">{i + 1}</td>
-                      <td className="bold">{firstLast(r.nombre, r.apellido)}</td>
+                      <td className="bold"><PersonaLink id={r.user_id} nombre={firstLast(r.nombre, r.apellido)} /></td>
                       <td><span className="chip neutral">{r.cargo}</span></td>
                       <td className="mono">{r.gestiones}</td>
                       <td className="mono bold">{horas(r.minutos)}</td>
@@ -1237,7 +1249,7 @@ function ResumenView() {
               {top.length === 0 ? <div className="sub">Sin datos.</div> : top.map((r, i) => (
                 <div key={r.user_id} className="podio">
                   <span className={"podionum p" + i}>{i + 1}</span>
-                  <div className="grow"><div className="pname">{firstLast(r.nombre, r.apellido)}</div><div className="sub tiny">{r.cargo}</div></div>
+                  <div className="grow"><div className="pname"><PersonaLink id={r.user_id} nombre={firstLast(r.nombre, r.apellido)} /></div><div className="sub tiny">{r.cargo}</div></div>
                   <div className="mono bold primary">{horas(r.minutos)}</div>
                 </div>
               ))}
@@ -1317,7 +1329,7 @@ function ResumenView() {
                     {ranking.filter((r) => r.gestiones > 0 || r.asignados > 0).slice(0, 15).map((r, i) => (
                       <tr key={r.user_id}>
                         <td className="mono soft">{i + 1}</td>
-                        <td className="bold">{firstLast(r.nombre, r.apellido)}</td>
+                        <td className="bold"><PersonaLink id={r.user_id} nombre={firstLast(r.nombre, r.apellido)} /></td>
                         <td><span className="chip neutral s11">{r.cargo}</span></td>
                         <td className="mono">{r.gestiones}</td>
                         <td className="mono bold">{horas(r.minutos)}</td>
@@ -1437,7 +1449,7 @@ function BandejaEquipoView() {
                   <tr key={f.id}>
                     <td className="mono s12">#{f.numero_caso.replace(/^EXT-/, "")}</td>
                     <td className="s12">{f.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (f.cliente ?? <span className="faint">—</span>)}</td>
-                    <td className="bold nameCell"><span className="uava xsmall">{(f.usuario?.nombre?.[0] ?? "") + (f.usuario?.apellido?.[0] ?? "")}</span>{f.usuario ? `${f.usuario.nombre} ${f.usuario.apellido ?? ""}` : "—"}</td>
+                    <td className="bold nameCell"><span className="uava xsmall">{(f.usuario?.nombre?.[0] ?? "") + (f.usuario?.apellido?.[0] ?? "")}</span><PersonaLink id={f.user_id} nombre={f.usuario ? `${f.usuario.nombre} ${f.usuario.apellido ?? ""}` : "—"} /></td>
                     <td className="s12">{f.usuario?.cargo ?? "—"}</td>
                     <td className="s12">
                       {!f.asignado_por ? <span className="faint">—</span>
@@ -1691,7 +1703,7 @@ function AuditTable({ gestiones }: { gestiones: any[] }) {
                 const nomG = g.gestiones_catalogo?.nombre ?? "—";
                 return (
                   <tr key={g.id} className={g.alert ? "row-alert" : ""}>
-                    <td className="bold"><span className="cellclip" title={uName(g)}>{uName(g)}</span></td>
+                    <td className="bold"><PersonaLink id={g.user_id} nombre={uName(g)} clip /></td>
                     <td><span className="dotname"><span className="catdot" style={{ background: cat ? CATS[cat].color : "#ccc" }} /><span className="cellclip" title={nomG}>{nomG}</span></span></td>
                     <td className="mono s12">#{g.numero_caso.replace(/^EXT-/, "")}</td>
                     <td className="s12">{g.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (g.cliente ? <span className="cellclip" title={g.cliente}>{g.cliente}</span> : <span className="faint">—</span>)}</td>
@@ -2539,6 +2551,18 @@ function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }
   const casos = d?.casos ?? []; const gest = d?.gestiones ?? [];
   const pend = casos.filter((c: any) => c.estado !== "gestionado").length;
   const hechos = casos.length - pend;
+
+  // Gráfica 1: minutos por tipo de gestión (las 6 con más tiempo).
+  const porTipo = Object.values(gest.reduce((acc: any, g: any) => {
+    const k = g.tipo || "—"; (acc[k] ??= { tipo: k, min: 0 }); acc[k].min += g.minutos || 0; return acc;
+  }, {})).sort((a: any, b: any) => b.min - a.min).slice(0, 6) as any[];
+  // Gráfica 2: número de gestiones por hora del día.
+  const porHoraMap = gest.reduce((acc: any, g: any) => {
+    if (!g.registrado_at) return acc;
+    const h = new Date(g.registrado_at).getHours(); acc[h] = (acc[h] || 0) + 1; return acc;
+  }, {} as Record<number, number>);
+  const porHora = Object.keys(porHoraMap).map(Number).sort((a, b) => a - b)
+    .map((h) => ({ hora: String(h).padStart(2, "0") + "h", gestiones: porHoraMap[h] }));
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
@@ -2557,6 +2581,34 @@ function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }
                 <div className="card tight"><div className="statVal sm" style={{ color: "var(--ok)" }}>{hechos}</div><div className="statLbl">Cerrados hoy</div></div>
                 <div className="card tight"><div className="statVal sm" style={{ color: "var(--primary)" }}>{horas(d.resumen?.minutos ?? 0)}</div><div className="statLbl">{d.resumen?.gestiones ?? 0} gestiones</div></div>
               </div>
+              {gest.length > 0 && (
+                <div className="grid two mb14">
+                  <div className="card tight">
+                    <div className="h2 mb6" style={{ fontSize: 13 }}>Tiempo por tipo de gestión (min)</div>
+                    <ResponsiveContainer width="100%" height={Math.max(120, 26 + porTipo.length * 30)}>
+                      <BarChart data={porTipo} layout="vertical" margin={{ left: 4, right: 12 }}>
+                        <CartesianGrid horizontal={false} stroke="#EEF1F6" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="tipo" width={96} tick={{ fontSize: 10, fill: "#5C6883" }} axisLine={false} tickLine={false} interval={0} />
+                        <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                        <Bar dataKey="min" name="Minutos" fill="#0098D6" radius={[0, 4, 4, 0]} maxBarSize={14} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="card tight">
+                    <div className="h2 mb6" style={{ fontSize: 13 }}>Gestiones por hora</div>
+                    <ResponsiveContainer width="100%" height={Math.max(120, 26 + porTipo.length * 30)}>
+                      <BarChart data={porHora} margin={{ left: -18, right: 8, top: 6 }}>
+                        <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                        <XAxis dataKey="hora" tick={{ fontSize: 9, fill: "#95A1B9" }} axisLine={false} tickLine={false} interval={0} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                        <Bar dataKey="gestiones" name="Gestiones" fill="#26B07A" radius={[4, 4, 0, 0]} maxBarSize={22} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
               <div className="h2 mb6" style={{ fontSize: 14 }}>Casos del día</div>
               {casos.length === 0 ? <div className="sub small mb14">Sin casos asignados hoy.</div> :
                 <div className="col9 mb14">
@@ -2705,7 +2757,7 @@ function CargaView({ perfil }: { perfil: Usuario }) {
                     const pct = f.asignados ? Math.round((f.gestionados / f.asignados) * 100) : null;
                     return (
                       <tr key={f.user_id}>
-                        <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{firstLast(f.nombre, f.apellido)}</td>
+                        <td className="bold nameCell"><span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span><PersonaLink id={f.user_id} nombre={firstLast(f.nombre, f.apellido)} /></td>
                         <td className="s12">{f.cargo}</td>
                         {priv && !mesa && <td><span className="chip bajo s11">{f.mesa ? mesaLabel(f.mesa) : "—"}</span></td>}
                         <td className="mono bold">{f.asignados}</td>
@@ -2751,7 +2803,7 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
       if (mesa && (h.usuarios?.mesa !== mesa)) return;   // filtro por mesa exacta (priv)
       if (turno && h.turno !== turno) return;
       const id = h.user_id;
-      if (!map.has(id)) map.set(id, { nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", mesa: h.usuarios?.mesa ?? "", dias: {} as any });
+      if (!map.has(id)) map.set(id, { id, nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", mesa: h.usuarios?.mesa ?? "", dias: {} as any });
       const d = (new Date(h.fecha + "T12:00:00").getDay() + 6) % 7;
       map.get(id).dias[d] = h;
     });
@@ -2821,7 +2873,7 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
               <tbody>
                 {personasVistas.map((p, i) => (
                   <tr key={i}>
-                    <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}</div></td>
+                    <td className="stickyc bold s12"><PersonaLink id={p.id} nombre={p.nombre} /><div className="sub tiny">{p.cargo}</div></td>
                     {priv && !mesa && <td><span className="chip bajo s11">{p.mesa ? mesaLabel(p.mesa) : "—"}</span></td>}
                     {DIAS.map((_, d) => {
                       const h = p.dias[d];
@@ -3159,8 +3211,10 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   // Cambiar de perspectiva (Admin/Coord/Senior/Agente) reinicia a su primera sección.
   const cambiarVista = (r: Rol) => { setVista(r); setSection(NAV[r][0].key); };
   const items = NAV[vista] ?? [];
+  const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
 
   return (
+    <PerfilCtx.Provider value={setPerfilUser}>
     <div className="app">
       <aside className="side">
         <div className="brand">
@@ -3320,5 +3374,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         </div>
       )}
     </div>
+    {perfilUser && <PerfilPersona user={perfilUser} onClose={() => setPerfilUser(null)} />}
+    </PerfilCtx.Provider>
   );
 }
