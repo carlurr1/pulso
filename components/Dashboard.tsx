@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -3237,6 +3237,13 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const cambiarVista = (r: Rol) => { setVista(r); setSection(NAV[r][0].key); };
   const items = NAV[vista] ?? [];
   const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
+  const [tema, setTema] = useState<"light" | "dark">("light");
+  useEffect(() => { setTema((document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light"); }, []);
+  const toggleTema = () => {
+    const n = tema === "dark" ? "light" : "dark";
+    setTema(n); document.documentElement.setAttribute("data-theme", n);
+    try { localStorage.setItem("pulso-theme", n); } catch { /* ignore */ }
+  };
 
   return (
     <PerfilCtx.Provider value={setPerfilUser}>
@@ -3253,6 +3260,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           </button>
         ))}
         <div className="sidefoot">
+          <button className="signout" onClick={toggleTema}>{tema === "dark" ? <Sun size={15} /> : <Moon size={15} />}<span>{tema === "dark" ? "Modo claro" : "Modo oscuro"}</span></button>
           {instalable && <button className="signout instbtn" onClick={instalar}><Download size={15} /><span>Instalar app</span></button>}
           <div className="cosbadge col-start">
             <span className="cosbadge-lbl">Operación a cargo de</span>

@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           dangerouslySetInnerHTML={{
             __html: `
 (function(){
+  try{var t=localStorage.getItem('pulso-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
   if('serviceWorker' in navigator){
     window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})});
   }
