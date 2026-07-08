@@ -693,9 +693,9 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 
   return (
     <>
-      <div className="eyebrow">Senior</div>
+      <div className="eyebrow">{perfil.rol === "senior" ? "Senior" : (perfil.mesa ? mesaLabel(perfil.mesa) : "Equipo")}</div>
       <div className="h1">Repartir seguimiento del día</div>
-      <div className="sub mb20">Asigna los casos de seguimiento a cada persona. Cuando entren, ya los verán en su bandeja.</div>
+      <div className="sub mb20">Asigna los casos de seguimiento a cada persona (puedes asignártelos a ti mismo). Cuando entren, ya los verán en su bandeja.</div>
       <div className="grid seniorLayout">
         <div className="card selfstart">
           <div className="h2 mb12">Equipo de hoy</div>
@@ -3002,6 +3002,16 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
 
+  // ¿La mesa del usuario permite que los agentes repartan seguimiento?
+  // (Todos los segmentos sí, MENOS Básicos, que queda solo para el senior.)
+  const [repartoAgente, setRepartoAgente] = useState(false);
+  useEffect(() => {
+    data.getMesas().then((ms: any[]) => {
+      const m = ms.find((x) => x.nombre === perfil.mesa);
+      setRepartoAgente(m?.reparte_agente === true);
+    }).catch(() => {});
+  }, []);
+
   // Sesión única: si el usuario abre Pulso en otra pestaña/equipo, esta
   // sesión queda desplazada y se bloquea la pantalla.
   const [sesionDup, setSesionDup] = useState(false);
@@ -3273,7 +3283,10 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
 
   // Cambiar de perspectiva (Admin/Coord/Senior/Agente) reinicia a su primera sección.
   const cambiarVista = (r: Rol) => { setVista(r); setSection(NAV[r][0].key); };
-  const items = NAV[vista] ?? [];
+  // El agente de un segmento habilitado ve además "Repartir seguimiento".
+  const items = (vista === "agente" && repartoAgente)
+    ? [{ key: "repartir", label: "Repartir seguimiento", icon: CalendarRange }, ...NAV.agente]
+    : (NAV[vista] ?? []);
   const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
   const [tema, setTema] = useState<"light" | "dark">("light");
   useEffect(() => { setTema((document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light"); }, []);
@@ -3349,7 +3362,8 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
 
         <div className="content">
           {vista === "agente" && section === "horario" && <HorariosView perfil={perfil} />}
-          {vista === "agente" && section !== "horario" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
+          {vista === "agente" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
+          {vista === "agente" && section !== "horario" && section !== "repartir" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
