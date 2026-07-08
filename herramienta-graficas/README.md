@@ -5,6 +5,11 @@ visual de eTb (el mismo del corte Silver/Bronce que sirvió de guía). Cargas un
 Excel con los datos y la herramienta produce las imágenes listas para
 **copiar y pegar** en la presentación.
 
+> **¿Uso semanal sin terminal?** Usa la versión web: abre
+> [`web/tablero.html`](web/tablero.html) en el navegador, sube los archivos y
+> descarga las imágenes. Es autónoma (no requiere instalar nada). Ver
+> [`web/README.md`](web/README.md). Lo de abajo es la versión de línea de comandos.
+
 Segmentos objetivo: **Mayoristas, Distrito, Élite, Gold, Premium**
 (_Silver/Bronce lo saca otra área; aquí solo se usó como referencia visual_).
 
