@@ -39,6 +39,16 @@ const BASE = {
 // Factores por segmento (Mayoristas = 1, real de la guía).
 const FACTOR: Record<string, number> = { Mayoristas: 1, Distrito: 0.7, Élite: 0.45, Gold: 1.3, Premium: 0.85 };
 
+// Metas de casos por segmento (Resolutividad %SN1 y TMS). NS/NA son iguales
+// para todos (80% / 95%) y se muestran general.
+const METAS: Record<string, { resol: number; tms: string }> = {
+  Élite: { resol: 87, tms: "10:30:00" },
+  Distrito: { resol: 87, tms: "12:00:00" },
+  Premium: { resol: 87, tms: "12:00:00" },
+  Gold: { resol: 81, tms: "12:30:00" },
+  Mayoristas: { resol: 70, tms: "11:30:00" },
+};
+
 const r = (n: number) => Math.round(n);
 
 const indicadores = SEGMENTOS.map((seg) => {
@@ -64,8 +74,8 @@ const indicadores = SEGMENTOS.map((seg) => {
     SegundoNivel: r(BASE.segundoNivel * f),
     MetaNS: 80,
     MetaNA: 95,
-    MetaResolutividad: 78,
-    MetaTMS: "18:00:00",
+    MetaResolutividad: METAS[seg]?.resol ?? 78,
+    MetaTMS: METAS[seg]?.tms ?? "18:00:00",
   };
 });
 

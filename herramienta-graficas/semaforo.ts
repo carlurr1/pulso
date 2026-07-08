@@ -25,8 +25,8 @@ if (todos.size === 0) {
 for (const [k, o] of todos) {
   const e = elect.get(k)!;
   console.log(`\n=== ${o.segmento} ===  (cerrados ${o.cerrados} · N1 ${o.n1} · N2 ${o.n2})`);
-  console.log(`  Resolutividad (%SN1): ${o.resolutividad.toFixed(1)} %   (meta 78%)`);
-  console.log(`  TMS general:          ${o.tms} hr   (meta 18:00:00)`);
+  console.log(`  Resolutividad (%SNU, Sin COFO): ${o.resolutividad.toFixed(1)} %`);
+  console.log(`  TMS general (Sin COFO):         ${o.tms} hr`);
   console.log(`  TMS Telefónico N1:    ${o.tmsTelefonicoN1} hr   (n=${o.nTelefonico})`);
   console.log(`  TMS Correo N1:        ${o.tmsCorreoN1} hr   (n=${o.nCorreo}, incl. Automático)`);
   console.log(`     └ solo "electrónico": ${e.tmsCorreoN1} hr   (n=${e.nCorreo})`);

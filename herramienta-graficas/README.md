@@ -138,25 +138,33 @@ npm run graficas:llamadas -- ./NS_SOPORTE.xls
 
 ## Semáforo de soporte → indicadores operativos (opcional, `--semaforo`)
 
-El semáforo (`ETB_..._Semaforo_Soporte.xlsx`, hoja **`BBDD`**, una fila por
-caso) alimenta los **indicadores operativos por segmento**. Receta validada
-contra las tablas dinámicas oficiales del propio semáforo:
+El semáforo (`ETB_..._Semaforo_Soporte.xlsx`) alimenta los **indicadores
+operativos por segmento**. El comité muestra los valores **Sin COFO**.
 
-- Filtro base: **`BASE = Cerrados`**.
-- **Nivel 1 (HDP)** = `BaseCerradosAreaSolucion` empieza por `HDP` (≡ `Escalado = 0`).
-- **Nivel 2** = área de solución distinta de HDP (≡ `Escalado = 1`).
+El "Sin COFO" del semáforo **no** corresponde a la columna `COFO` de la BBDD
+(allí casi no hay COFO=1); se calcula en las tablas dinámicas. Por eso la
+herramienta **lee los valores oficiales Sin COFO directamente de las hojas del
+semáforo** (anclando por texto, robusto a que se muevan filas):
+
+| Indicador | Origen |
+|---|---|
+| **Resolutividad** (`%SNU`) | hoja **`SN1`**, bloque "Sin COFO" |
+| **TMS** general | hoja **`TMS`**, bloque "Sin COFO" (Promedio de TMS) |
+
+El desglose que las tablas no traen se **calcula desde la hoja `BBDD`** (cerrados,
+N1 = área de solución `HDP`):
 
 | Indicador | Cálculo |
 |---|---|
-| **Resolutividad** (`%SN1`) | N1 / total, **solo "Sin Falla Masiva"** (meta 78%) |
-| **TMS** general | promedio de la columna `TMS`, todos los cerrados |
 | **TMS Telefónico N1** | promedio TMS de N1 con `Origen del caso` = Teléfono |
 | **TMS Correo N1** | promedio TMS de N1 con `Origen del caso` = Correo |
-| **TMS Nivel 2** | promedio TMS de N2 |
+| **TMS Nivel 2** | promedio TMS de los escalados (área ≠ HDP) |
 
-La columna `TMS` está en **días**; se muestra en `h:mm:ss` (×24), como el comité.
-El cruce con los segmentos tolera el prefijo del semáforo: `3.MAYORISTAS ≡ Mayoristas`,
-`1.ELITE ≡ Élite`, etc.
+Los TMS se muestran en `h:mm:ss` (la fuente viene en días). El cruce con los
+segmentos tolera el prefijo del semáforo: `3.MAYORISTAS ≡ Mayoristas`,
+`1.ELITE ≡ Élite`, etc. Las **metas por segmento** (Resolutividad y TMS) se
+definen en las columnas `MetaResolutividad` / `MetaTMS` de la hoja `Indicadores`;
+NS y NA usan meta general (80% / 95%).
 
 ```bash
 # Ver los indicadores operativos por segmento (correo en ambos modos):
