@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "import:horarios": "tsx scripts/import-horarios.ts"
+    "import:horarios": "tsx scripts/import-horarios.ts",
+    "graficas": "tsx herramienta-graficas/generar.ts",
+    "graficas:plantilla": "tsx herramienta-graficas/crear-plantilla.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -25,6 +27,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
+    "playwright-core": "^1.61.1",
     "tsx": "^4.19.2",
     "typescript": "^5"
   }
