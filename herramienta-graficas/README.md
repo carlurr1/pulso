@@ -136,15 +136,50 @@ los números de la campaña "Soporte" del reporte.
 npm run graficas:llamadas -- ./NS_SOPORTE.xls
 ```
 
+## Semáforo de soporte → indicadores operativos (opcional, `--semaforo`)
+
+El semáforo (`ETB_..._Semaforo_Soporte.xlsx`, hoja **`BBDD`**, una fila por
+caso) alimenta los **indicadores operativos por segmento**. Receta validada
+contra las tablas dinámicas oficiales del propio semáforo:
+
+- Filtro base: **`BASE = Cerrados`**.
+- **Nivel 1 (HDP)** = `BaseCerradosAreaSolucion` empieza por `HDP` (≡ `Escalado = 0`).
+- **Nivel 2** = área de solución distinta de HDP (≡ `Escalado = 1`).
+
+| Indicador | Cálculo |
+|---|---|
+| **Resolutividad** (`%SN1`) | N1 / total, **solo "Sin Falla Masiva"** (meta 78%) |
+| **TMS** general | promedio de la columna `TMS`, todos los cerrados |
+| **TMS Telefónico N1** | promedio TMS de N1 con `Origen del caso` = Teléfono |
+| **TMS Correo N1** | promedio TMS de N1 con `Origen del caso` = Correo |
+| **TMS Nivel 2** | promedio TMS de N2 |
+
+La columna `TMS` está en **días**; se muestra en `h:mm:ss` (×24), como el comité.
+El cruce con los segmentos tolera el prefijo del semáforo: `3.MAYORISTAS ≡ Mayoristas`,
+`1.ELITE ≡ Élite`, etc.
+
+```bash
+# Ver los indicadores operativos por segmento (correo en ambos modos):
+npm run graficas:semaforo -- ./ETB_Semaforo_Soporte.xlsx
+
+# Generar el tablero cruzando semáforo (y opcionalmente llamadas):
+npm run graficas -- ./datos.xlsx ./salida \
+  --semaforo ./ETB_Semaforo_Soporte.xlsx --correo todos
+```
+
+`--correo todos` cuenta cualquier origen que "diga correo" (incluye *Correo
+Automático*); `--correo electronico` cuenta solo *Correo electrónico* (manual).
+
 ## Cómo funciona (técnico)
 
 - **`crear-plantilla.ts`** — escribe el Excel de ejemplo.
 - **`leer-excel.ts`** — lee el libro con `xlsx` y arma un `SegmentoData` por segmento.
 - **`leer-llamadas.ts`** — agrega el reporte diario del ACD por campaña (promedios).
+- **`leer-semaforo.ts`** — calcula los indicadores operativos por segmento desde `BBDD`.
 - **`plantilla.ts`** — construye el HTML/SVG del tablero con el estilo eTb.
 - **`generar.ts`** — renderiza el HTML en Chromium (headless, vía `playwright-core`)
   y recorta cada bloque a PNG a 3x.
-- **`llamadas.ts`** — CLI para inspeccionar la agregación de llamadas.
+- **`llamadas.ts`** / **`semaforo.ts`** — CLIs para inspeccionar las agregaciones.
 - **`util.ts`** — helpers de lectura de Excel (encabezados flexibles).
 
 No requiere red ni descargar navegadores: usa el Chromium ya instalado en el

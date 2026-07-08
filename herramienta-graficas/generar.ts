@@ -16,6 +16,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { leerLibro } from "./leer-excel";
 import { leerLlamadas } from "./leer-llamadas";
+import { CorreoModo, claveSegmento, leerSemaforo } from "./leer-semaforo";
 import { paginaCompleta } from "./plantilla";
 import { norm } from "./util";
 import { SegmentoData } from "./tipos";
@@ -81,6 +82,32 @@ function logoDataUri(): string {
   return `data:image/png;base64,${fs.readFileSync(p).toString("base64")}`;
 }
 
+/**
+ * Rellena los INDICADORES OPERATIVOS (Resolutividad, TMS y sus variantes) de
+ * cada segmento a partir del semáforo de soporte, cruzando por nombre de
+ * segmento (tolerando el prefijo "N." del semáforo: "3.MAYORISTAS" ≡ "Mayoristas").
+ */
+function fusionarSemaforo(segmentos: SegmentoData[], rutaSemaforo: string, modoCorreo: CorreoModo): void {
+  const oper = leerSemaforo(rutaSemaforo, modoCorreo);
+  for (const seg of segmentos) {
+    const o = oper.get(claveSegmento(seg.segmento));
+    if (!o) {
+      console.warn(`  ⚠ Sin datos de semáforo para "${seg.segmento}".`);
+      continue;
+    }
+    seg.indicadores.resolutividad = o.resolutividad;
+    seg.indicadores.tms = o.tms;
+    seg.indicadores.tmsTelefonicoN1 = o.tmsTelefonicoN1;
+    seg.indicadores.tmsCorreoN1 = o.tmsCorreoN1;
+    seg.indicadores.tmsN2 = o.tmsN2;
+    console.log(
+      `  ↳ ${seg.segmento} ← semáforo: cerrados ${o.cerrados} · N1 ${o.n1} · N2 ${o.n2} · ` +
+        `Resol ${o.resolutividad.toFixed(1)}% · TMS ${o.tms} · Tel ${o.tmsTelefonicoN1}(n${o.nTelefonico}) · ` +
+        `Correo ${o.tmsCorreoN1}(n${o.nCorreo}) · N2 ${o.tmsN2}`
+    );
+  }
+}
+
 /** Lee un flag "--nombre valor" o "--nombre=valor" de argv. */
 function flag(nombre: string): string | undefined {
   const args = process.argv.slice(2);
@@ -95,6 +122,8 @@ async function main() {
   // posicionales = los que no son flags ni valor de flag
   const args = process.argv.slice(2);
   const rutaLlamadas = flag("llamadas");
+  const rutaSemaforo = flag("semaforo");
+  const modoCorreo = (flag("correo") as CorreoModo) || "todos";
   const posicionales: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -107,7 +136,10 @@ async function main() {
   const [archivo, salidaArg] = posicionales;
 
   if (!archivo) {
-    console.error("Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>]");
+    console.error(
+      "Uso: npm run graficas -- <excel> [salida] [--llamadas <archivo.xls>] " +
+        "[--semaforo <semaforo.xlsx>] [--correo todos|electronico]"
+    );
     process.exit(1);
   }
   if (!fs.existsSync(archivo)) {
@@ -130,6 +162,15 @@ async function main() {
     }
     console.log(`Cruzando llamadas desde ${path.basename(rutaLlamadas)}:`);
     fusionarLlamadas(segmentos, rutaLlamadas);
+  }
+
+  if (rutaSemaforo) {
+    if (!fs.existsSync(rutaSemaforo)) {
+      console.error(`No existe el archivo de semáforo: ${rutaSemaforo}`);
+      process.exit(1);
+    }
+    console.log(`Cruzando semáforo (correo: ${modoCorreo}) desde ${path.basename(rutaSemaforo)}:`);
+    fusionarSemaforo(segmentos, rutaSemaforo, modoCorreo);
   }
 
   const html = paginaCompleta(segmentos, logoDataUri());

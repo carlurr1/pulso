@@ -10,7 +10,8 @@
     "import:horarios": "tsx scripts/import-horarios.ts",
     "graficas": "tsx herramienta-graficas/generar.ts",
     "graficas:plantilla": "tsx herramienta-graficas/crear-plantilla.ts",
-    "graficas:llamadas": "tsx herramienta-graficas/llamadas.ts"
+    "graficas:llamadas": "tsx herramienta-graficas/llamadas.ts",
+    "graficas:semaforo": "tsx herramienta-graficas/semaforo.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
