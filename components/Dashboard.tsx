@@ -2548,7 +2548,10 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
 function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }; onClose: () => void }) {
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [tend, setTend] = useState<{ dia: string; gestiones: number; minutos: number; casos: number }[]>([]);
   useEffect(() => { data.perfilDia(user.id).then((r) => { setD(r); setLoading(false); }).catch(() => setLoading(false)); }, [user.id]);
+  useEffect(() => { data.perfilTendencia(user.id, 14).then(setTend).catch(() => setTend([])); }, [user.id]);
+  const tendChart = tend.map((t) => ({ dia: t.dia.slice(8, 10) + "/" + t.dia.slice(5, 7), gestiones: t.gestiones }));
   const hh = (iso: string) => new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false });
   const casos = d?.casos ?? []; const gest = d?.gestiones ?? [];
   const pend = casos.filter((c: any) => c.estado !== "gestionado").length;
@@ -2609,6 +2612,26 @@ function PerfilPersona({ user, onClose }: { user: { id: string; nombre: string }
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
+                </div>
+              )}
+              {tendChart.some((t) => t.gestiones > 0) && (
+                <div className="card tight mb14">
+                  <div className="h2 mb6" style={{ fontSize: 13 }}>Evolución · gestiones por día (últimas 2 semanas)</div>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <AreaChart data={tendChart} margin={{ left: -20, right: 8, top: 6 }}>
+                      <defs>
+                        <linearGradient id="gTend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0098D6" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#0098D6" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                      <XAxis dataKey="dia" tick={{ fontSize: 9, fill: "#95A1B9" }} axisLine={false} tickLine={false} interval={0} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                      <Area type="monotone" dataKey="gestiones" name="Gestiones" stroke="#0098D6" strokeWidth={2} fill="url(#gTend)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               )}
               <div className="h2 mb6" style={{ fontSize: 14 }}>Casos del día</div>

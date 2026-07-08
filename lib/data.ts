@@ -456,6 +456,12 @@ export async function perfilDia(userId: string, fecha = hoy()) {
   if (error) throw new Error(error.message);
   return data as any;
 }
+export async function perfilTendencia(userId: string, dias = 14) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("perfil_tendencia", { p_user: userId, p_dias: dias });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { dia: string; gestiones: number; minutos: number; casos: number }[];
+}
 // Carga de casos por persona (coordinador: toda la operación con filtro
 // de mesa; senior: siempre su grupo — lo decide la base).
 export async function cargaEquipo(desde: string, hasta: string, mesa?: string | null) {
