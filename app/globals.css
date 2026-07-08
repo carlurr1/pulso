@@ -8,6 +8,16 @@
   --ok:#26B07A; --ok-50:#E1F5EC; --cos:#D11F2A;
   --side:#0A5EA6; --side-2:#0090D0;
 }
+/* Tema oscuro: solo redefine los tokens; los componentes no cambian. */
+:root[data-theme="dark"]{
+  --canvas:#0D1420; --surface:#151D2B; --surface-2:#1C2634;
+  --ink:#E7ECF4; --ink-soft:#A2B0C6; --ink-faint:#6F7E96; --line:#28323F;
+  --primary:#1FA8E6; --primary-600:#4BBAEE; --primary-50:#123147;
+  --accent:#8C7CF0; --accent-50:#241F3D;
+  --warn:#F2A33C; --warn-50:#3A2E17; --danger:#F2565B; --danger-50:#3A1D1F;
+  --ok:#33C089; --ok-50:#123528; --cos:#E5686D;
+  --side:#0A3E6E; --side-2:#0A5E86;
+}
 *{box-sizing:border-box}
 .pulso *{font-family:'Inter',system-ui,sans-serif}
 .pulso{background:var(--canvas);color:var(--ink);min-height:100vh;-webkit-font-smoothing:antialiased}
@@ -156,6 +166,7 @@ textarea.inp{resize:vertical;min-height:120px;font-family:'JetBrains Mono';font-
 .tbl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-faint);
   font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
 .tbl td{padding:11px 12px;font-size:13px;border-bottom:1px solid var(--surface-2);vertical-align:middle}
+.tbl tbody tr:nth-child(even):not(.row-alert) td{background:color-mix(in srgb, var(--surface-2) 55%, transparent)}
 .tbl tr:hover td{background:var(--surface-2)}
 .row-alert td{background:var(--danger-50)}
 .row-alert:hover td{background:var(--danger-50)}
