@@ -1844,6 +1844,11 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
     try { await data.guardarMeta(mesa, n); fire(`Meta de ${mesaLabel(mesa)}: ${n} gestiones/día`); }
     catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); }
   };
+  const toggleReparto = async (mesa: string, valor: boolean) => {
+    setMesas((prev) => prev.map((m: any) => (m.nombre === mesa ? { ...m, reparte_agente: valor } : m)));
+    try { await data.guardarRepartoAgente(mesa, valor); fire(`${mesaLabel(mesa)}: reparto de agentes ${valor ? "activado" : "desactivado"}`); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo guardar")); cargar(); }
+  };
   // Normas de pausas (umbral de break y almuerzo).
   const [cfg, setCfg] = useState<any>(null);
   useEffect(() => { data.getConfigOperacion().then(setCfg).catch(() => {}); }, []);
@@ -1871,6 +1876,10 @@ function MesaConfig({ fire }: { fire: (m: string) => void }) {
                 defaultValue={metas[m.nombre] ?? 0}
                 key={m.nombre + (metas[m.nombre] ?? 0)}
                 onBlur={(e) => { if (+e.target.value !== (metas[m.nombre] ?? 0)) guardarMeta(m.nombre, e.target.value); }} />
+              <label className="sub tiny" style={{ marginLeft: 14, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input type="checkbox" checked={m.reparte_agente === true} onChange={(e) => toggleReparto(m.nombre, e.target.checked)} />
+                Agentes reparten seguimiento
+              </label>
             </div>
           </div>
         ))}
@@ -3237,9 +3246,24 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const esPriv = perfil.rol === "superadmin" || perfil.rol === "coordinador";
   const greet = new Date().getHours() < 12 ? "Buenos días" : new Date().getHours() < 19 ? "Buenas tardes" : "Buenas noches";
 
+  // ¿La mesa del usuario permite que los agentes repartan seguimiento?
+  // (Todos los segmentos sí, MENOS Básicos, que queda solo para el senior.)
+  const [repartoAgente, setRepartoAgente] = useState(false);
+  useEffect(() => {
+    data.getMesas().then((ms: any[]) => {
+      const m = ms.find((x) => x.nombre === perfil.mesa);
+      setRepartoAgente(m?.reparte_agente === true);
+    }).catch(() => {});
+  }, []);
+
   // Cambiar de perspectiva (Admin/Coord/Senior/Agente) reinicia a su primera sección.
   const cambiarVista = (r: Rol) => { setVista(r); setSection(NAV[r][0].key); };
-  const items = NAV[vista] ?? [];
+
+  // El agente de un segmento habilitado ve además "Repartir seguimiento".
+  const items = (vista === "agente" && repartoAgente)
+    ? [{ key: "repartir", label: "Repartir seguimiento", icon: CalendarRange }, ...NAV.agente]
+    : (NAV[vista] ?? []);
+
   const [perfilUser, setPerfilUser] = useState<{ id: string; nombre: string } | null>(null);
   const [tema, setTema] = useState<"light" | "dark">("light");
   useEffect(() => { setTema((document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light"); }, []);
@@ -3315,7 +3339,8 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
 
         <div className="content">
           {vista === "agente" && section === "horario" && <HorariosView perfil={perfil} />}
-          {vista === "agente" && section !== "horario" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
+          {vista === "agente" && section === "repartir" && repartoAgente && <SeniorView perfil={perfil} fire={fire} />}
+          {vista === "agente" && section !== "horario" && section !== "repartir" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
