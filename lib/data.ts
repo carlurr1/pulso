@@ -235,14 +235,14 @@ export async function quitarAsignacion(id: string) {
   await sb.from("asignaciones").delete().eq("id", id);
 }
 
-// Reasignar un caso pendiente a otra persona (corregir un traspaso equivocado).
-// Solo mueve la bandeja; no crea ni toca gestiones. Se usa cuando el caso aún no se ha trabajado.
+// Reasignar un caso a otra persona (corregir un traspaso equivocado).
+// Funciona sin importar el estado — si ya tenía gestión, la UI pide
+// confirmación antes de llamar esto (ver Dashboard.tsx).
 export async function reasignarCaso(opts: { asignacionId: string; destinoId: string; porId: string }) {
   const sb = createClient();
   const { error } = await sb.from("asignaciones")
     .update({ user_id: opts.destinoId, asignado_por: opts.porId, estado: "pendiente" })
-    .eq("id", opts.asignacionId)
-    .eq("estado", "pendiente"); // solo si sigue pendiente (no trabajado)
+    .eq("id", opts.asignacionId);
   if (error) throw error;
 }
 
@@ -287,6 +287,23 @@ export async function agregarMesa(nombre: string, grupo?: string) {
   if (error) throw error;
 }
 
+// ── Festivos de Colombia (usados por es_horario_habil() en la base) ─
+export async function getFestivos() {
+  const sb = createClient();
+  const { data } = await sb.from("festivos").select("*").order("fecha");
+  return data ?? [];
+}
+export async function agregarFestivo(fecha: string, nombre: string) {
+  const sb = createClient();
+  const { error } = await sb.from("festivos").insert({ fecha, nombre: nombre.trim() });
+  if (error) throw error;
+}
+export async function eliminarFestivo(fecha: string) {
+  const sb = createClient();
+  const { error } = await sb.from("festivos").delete().eq("fecha", fecha);
+  if (error) throw error;
+}
+
 // ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
 // Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
 export async function getPoolPendientes() {
@@ -302,6 +319,12 @@ export async function getPoolPendientes() {
   const cmap = new Map((casos ?? []).map((c: any) => [c.numero_caso, c.cliente]));
   filas.forEach((p) => { p.creador = p.creado_por ? umap.get(p.creado_por) ?? null : null; p.cliente = cmap.get(p.numero_caso) ?? null; });
   return filas;
+}
+// Casos que llegaron fuera de horario hábil (noche, fin de semana, festivo):
+// visibles para cualquiera, sin importar mesa/grupo (ver RLS de casos_pool).
+export async function getPoolNoHabil() {
+  const todos = await getPoolPendientes();
+  return todos.filter((p: any) => p.fuera_horario === true);
 }
 // Asignar (senior) o tomarse (agente) un caso del contenedor. Las reglas
 // (mesa propia, senior de la mesa, fin de semana en el grupo) las valida la base.

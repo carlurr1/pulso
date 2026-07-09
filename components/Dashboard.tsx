@@ -641,7 +641,11 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
       data.getMiBandeja(sel).then(setBandeja);
     } catch (e: any) { fire("Error: " + e.message); }
   };
-  const quitar = async (id: string) => { await data.quitarAsignacion(id); data.getMiBandeja(sel).then(setBandeja); };
+  const quitar = async (a: any) => {
+    if (a.estado !== "pendiente" && !confirm(`El caso #${a.numero_caso} ya tiene gestión registrada. ¿Quitarlo de la bandeja de todas formas?`)) return;
+    await data.quitarAsignacion(a.id);
+    data.getMiBandeja(sel).then(setBandeja);
+  };
 
   // Contenedor general de MI mesa: los casos que otras mesas nos enviaron.
   const [pool, setPool] = useState<any[]>([]);
@@ -660,10 +664,14 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   };
 
   const [reasignando, setReasignando] = useState<string | null>(null);
-  const reasignar = async (asignacionId: string, destinoId: string) => {
+  const reasignar = async (a: any, destinoId: string) => {
     if (!destinoId || destinoId === sel) { setReasignando(null); return; }
+    if (a.estado !== "pendiente" && !confirm(`El caso #${a.numero_caso} ya tiene gestión registrada. ¿Reasignarlo de todas formas?`)) {
+      setReasignando(null);
+      return;
+    }
     try {
-      await data.reasignarCaso({ asignacionId, destinoId, porId: perfil.id });
+      await data.reasignarCaso({ asignacionId: a.id, destinoId, porId: perfil.id });
       const dest = equipo.find((u) => u.id === destinoId);
       fire("Caso reasignado a " + (dest ? dest.nombre : "el analista"));
       setReasignando(null);
@@ -729,14 +737,12 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
                     <span className="mono caseChipNo">#{a.numero_caso}</span>
                     {(a as any).cliente && <span className="caseChipCli">{(a as any).cliente}</span>}
                     {a.estado === "gestionado" ? <Check size={13} color="var(--ok)" /> : a.estado === "progreso" ? <CircleDot size={13} color="var(--warn)" /> : null}
-                    {a.estado === "pendiente" && reasignando !== a.id && (
+                    {reasignando !== a.id && (
                       <button className="xbtn tiny" title="Pasar a otro analista" onClick={() => setReasignando(a.id)}><ArrowRight size={12} /></button>
                     )}
-                    {a.estado === "pendiente" && (
-                      <button className="xbtn tiny" title="Quitar" onClick={() => quitar(a.id)}><X size={12} /></button>
-                    )}
+                    <button className="xbtn tiny" title="Quitar" onClick={() => quitar(a)}><X size={12} /></button>
                     {reasignando === a.id && (
-                      <select className="inp reasignSel" autoFocus defaultValue="" onChange={(e) => reasignar(a.id, e.target.value)} onBlur={() => setReasignando(null)}>
+                      <select className="inp reasignSel" autoFocus defaultValue="" onChange={(e) => reasignar(a, e.target.value)} onBlur={() => setReasignando(null)}>
                         <option value="">Pasar a…</option>
                         {equipo.filter((u) => u.id !== sel).map((u) => (
                           <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>
@@ -748,6 +754,84 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
               </div>}
           </div>
         </div>
+      </div>
+    </>
+  );
+}
+
+// Bolsa de casos creados fuera de horario hábil (noche, fin de semana,
+// festivo). A diferencia del contenedor por mesa, esta la ve y la toma
+// cualquier autenticado sin importar su mesa/grupo (ver RLS de casos_pool).
+function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => void }) {
+  const [pool, setPool] = useState<any[]>([]);
+  const [equipo, setEquipo] = useState<Usuario[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const reload = () => data.getPoolNoHabil().then(setPool).catch(() => {});
+  useEffect(() => {
+    reload();
+    if (perfil.mesa) {
+      data.getEquipo(perfil.mesa)
+        .then((eq) => setEquipo(eq.filter((u) => u.id !== perfil.id && (u.rol === "agente" || u.rol === "senior"))))
+        .catch(() => {});
+    }
+    const t = setInterval(reload, 60000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line
+  }, []);
+
+  const asignar = async (poolId: string, destinoId: string) => {
+    if (!destinoId) return;
+    setBusy(poolId);
+    try {
+      const caso = pool.find((p) => p.id === poolId);
+      await data.poolAsignar(poolId, destinoId);
+      const d = equipo.find((u) => u.id === destinoId);
+      if (destinoId !== perfil.id) {
+        pushUsuarios([destinoId], "Caso fuera de horario asignado",
+          `${perfil.nombre} te asignó el caso ${caso ? "#" + caso.numero_caso : ""} de la bolsa de horario no hábil`).catch(() => {});
+      }
+      fire(`Caso ${caso ? "#" + caso.numero_caso : ""} asignado a ` + (destinoId === perfil.id ? "ti" : d ? d.nombre : "el analista"));
+      reload();
+    } catch (e: any) {
+      fire("Error: " + (e.message ?? "no se pudo asignar"));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <div className="eyebrow">Bolsa</div>
+      <div className="h1">Casos horario no hábil</div>
+      <div className="sub mb20">
+        Casos creados fuera del horario de atención (noche entre semana, fin de semana o festivo).
+        Cualquiera puede tomarlos, sin importar su mesa — asígnalos a ti mismo o a alguien de tu equipo.
+      </div>
+      <div className="card">
+        {pool.length === 0 ? (
+          <div className="empty pad24">No hay casos en la bolsa de horario no hábil.</div>
+        ) : (
+          <div className="col9">
+            {pool.map((p: any) => (
+              <div key={p.id} className="casecard">
+                <div className="min0">
+                  <div className="caseno">#{p.numero_caso}</div>
+                  {p.cliente && <div className="caseCli">{p.cliente}</div>}
+                  <div className="caseMeta">
+                    <span className="chip bajo s11">{mesaLabel(p.mesa)}</span>
+                    {p.creador && <span className="faint">· envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
+                    <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+                  </div>
+                </div>
+                <select className="inp dateinp" disabled={busy === p.id} defaultValue="" onChange={(e) => asignar(p.id, e.target.value)}>
+                  <option value="">Asignar a…</option>
+                  <option value={perfil.id}>Yo ({perfil.nombre})</option>
+                  {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
@@ -1746,7 +1830,7 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
       <div className="row-between end">
         <div><div className="eyebrow">Superadministración · Group COS</div><div className="h1">Configuración</div></div>
         <div className="rolepick">
-          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["mesas", "Mesas"], ["horarios", "Horarios"]].map(([k, l]) =>
+          {[["gestiones", "Gestiones"], ["usuarios", "Usuarios"], ["mesas", "Mesas"], ["horarios", "Horarios"], ["festivos", "Festivos"]].map(([k, l]) =>
             <button key={k} className={"roleopt" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
@@ -1755,8 +1839,58 @@ function ConfigView({ catalogo, reloadCatalogo, fire }: { catalogo: GestionTipo[
         {tab === "usuarios" && <UserConfig fire={fire} />}
         {tab === "mesas" && <MesaConfig fire={fire} />}
         {tab === "horarios" && <><HorarioConfig /><HorarioSemana /></>}
+        {tab === "festivos" && <FestivosConfig fire={fire} />}
       </div>
     </>
+  );
+}
+
+// Festivos de Colombia: la base los usa para saber si un caso llegó en
+// horario hábil (ver es_horario_habil() en 37_horario_no_habil.sql).
+function FestivosConfig({ fire }: { fire: (m: string) => void }) {
+  const [festivos, setFestivos] = useState<any[]>([]);
+  const [fecha, setFecha] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [busy, setBusy] = useState(false);
+  const cargar = () => data.getFestivos().then(setFestivos).catch(() => {});
+  useEffect(() => { cargar(); }, []);
+  const agregar = async () => {
+    if (!fecha || !nombre.trim()) return;
+    setBusy(true);
+    try { await data.agregarFestivo(fecha, nombre); setFecha(""); setNombre(""); fire("Festivo agregado"); cargar(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo agregar")); }
+    finally { setBusy(false); }
+  };
+  const quitar = async (f: string) => {
+    if (!confirm("¿Quitar este festivo?")) return;
+    try { await data.eliminarFestivo(f); fire("Festivo eliminado"); cargar(); }
+    catch (e: any) { fire("Error: " + (e.message ?? "no se pudo eliminar")); }
+  };
+  return (
+    <div className="card nopad">
+      <div className="tblhead">
+        <div><div className="h2">Festivos de Colombia</div><div className="sub small">Se usan para calcular el horario hábil (bolsa de casos fuera de horario). Agrega los de cada año nuevo cuando se conozcan.</div></div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input className="inp" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ width: 160 }} />
+          <input className="inp" placeholder="Nombre del festivo" value={nombre} onChange={(e) => setNombre(e.target.value)} style={{ width: 220 }} />
+          <button className="btn primary" disabled={busy || !fecha || !nombre.trim()} onClick={agregar}><Plus size={16} />Agregar</button>
+        </div>
+      </div>
+      <div className="tblscroll">
+        <table className="tbl">
+          <thead><tr><th>Fecha</th><th>Nombre</th><th></th></tr></thead>
+          <tbody>
+            {festivos.map((f: any) => (
+              <tr key={f.fecha}>
+                <td className="mono">{new Date(f.fecha + "T12:00:00").toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" })}</td>
+                <td>{f.nombre}</td>
+                <td><button className="xbtn tiny" title="Quitar" onClick={() => quitar(f.fecha)}><X size={12} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -2932,11 +3066,13 @@ type NavItem = { key: string; label: string; icon: any };
 const NAV: Record<Rol, NavItem[]> = {
   agente: [
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+    { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "horario", label: "Mi horario", icon: CalendarRange },
   ],
   senior: [
     { key: "repartir", label: "Repartir seguimiento", icon: CalendarRange },
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
+    { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga del equipo", icon: TrendingUp },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "horario", label: "Horarios del grupo", icon: Clock },
@@ -2945,6 +3081,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
+    { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
@@ -2955,6 +3092,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "tablero", label: "Tablero", icon: LayoutDashboard },
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
+    { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
@@ -3333,16 +3471,19 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
 
         <div className="content">
           {vista === "agente" && section === "horario" && <HorariosView perfil={perfil} />}
+          {vista === "agente" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "agente" && section === "repartir" && repartoAgente && <SeniorView perfil={perfil} fire={fire} />}
-          {vista === "agente" && section !== "horario" && section !== "repartir" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
+          {vista === "agente" && section !== "horario" && section !== "repartir" && section !== "no_habil" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} />}
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
+          {vista === "senior" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "senior" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "senior" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
+          {vista === "coordinador" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "coordinador" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
@@ -3351,6 +3492,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
+          {vista === "superadmin" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "superadmin" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
