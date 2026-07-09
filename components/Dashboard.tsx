@@ -2977,10 +2977,6 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
   const reloadCatalogo = () => data.getCatalogo().then(setCatalogo);
   useEffect(() => { reloadCatalogo(); }, []);
 
-  // Sesión única: si el usuario abre Pulso en otra pestaña/equipo, esta
-  // sesión queda desplazada y se bloquea la pantalla.
-  const [sesionDup, setSesionDup] = useState(false);
-
   // Candado del permiso de Idle Detection para roles operativos: si el permiso
   // está en 'prompt' o 'denied', la app queda bloqueada hasta concederlo.
   // Con la política IdleDetectionAllowedForUrls aplicada en los equipos
@@ -3018,9 +3014,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
     };
     const beat = () => {
       if (idleDetector) marcarActivo(idleDetector.userState === "active" && idleDetector.screenState !== "locked");
-      if (id) data.latido(id, Math.floor(activoAhora() / 1000))
-        .then((viva) => { if (!viva) setSesionDup(true); })   // otra apertura me desplazó
-        .catch(() => {});
+      if (id) data.latido(id, Math.floor(activoAhora() / 1000)).catch(() => {});
     };
 
     const iniciarDetector = async () => {
@@ -3366,20 +3360,6 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
         </div>
       </div>
       {toast && <div className="toast"><Check size={16} color="#2BD0C3" />{toast}</div>}
-      {sesionDup && (
-        <div className="overlay alta" style={{ zIndex: 400 }}>
-          <div className="alertcard">
-            <div className="alertico" style={{ animation: "none" }}><ShieldCheck size={30} /></div>
-            <div className="gatetitle">Tu cuenta se abrió en otro lugar</div>
-            <div className="gatemsg">
-              Pulso solo permite una sesión activa por persona. Esta pantalla quedó inactiva porque
-              tu usuario inició sesión en otra pestaña o en otro equipo. Si no fuiste tú, avísale a tu
-              coordinador y cambia tu contraseña.
-            </div>
-            <button className="btn primary block" onClick={() => logout()}>Cerrar esta sesión</button>
-          </div>
-        </div>
-      )}
       {idleGate && (
         <div className="overlay alta gate">
           <div className="alertcard">

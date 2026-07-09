@@ -427,15 +427,12 @@ export async function gTopCasos(desde: string, hasta: string, user?: string | nu
 }
 
 // ── Presencia / sesiones ──────────────────────────────────────────
-// SESIÓN ÚNICA: al abrir Pulso se cierran las demás sesiones abiertas
-// del mismo usuario (otra pestaña/equipo). La sesión desplazada lo
-// detecta en su siguiente latido y muestra la pantalla de bloqueo.
+// Multisesión: un mismo usuario puede tener varias sesiones activas a la
+// vez (varias pestañas/equipos); no se cierran entre sí.
 export async function iniciarSesion(): Promise<string | null> {
   const sb = createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
-  await sb.from("sesiones").update({ fin: new Date().toISOString() })
-    .eq("user_id", user.id).is("fin", null);
   const { data } = await sb.from("sesiones").insert({ user_id: user.id }).select("id").single();
   return data?.id ?? null;
 }
