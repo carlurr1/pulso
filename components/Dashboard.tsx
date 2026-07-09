@@ -251,7 +251,7 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
         return;
       }
       // Creación masiva: N creaciones a mi nombre + N casos a la bandeja del destino.
-      if (masivoPayload && masivoPayload.casos.length && destinoId && destinoId !== "__ext__") {
+      if (masivoPayload && masivoPayload.casos.length && destinoId && destinoId !== "__ext__" && !destinoId.startsWith("pool:")) {
         const n = await data.crearCasosMasivo({ destinoId, tipoId, casos: masivoPayload.casos, minutos: min, cerrar: masivoPayload.cerrar });
         const dest = equipo.find((u) => u.id === destinoId);
         setModal(null);
@@ -268,17 +268,23 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
       // el caso queda en el contenedor hasta que el senior de esa mesa lo asigne.
       if (destinoId && destinoId.startsWith("pool:")) {
         const mesaDest = destinoId.slice(5);
-        await data.crearYEnviarPool({ userId: perfil.id, tipoId, numeroCaso, minutos: min, mesa: mesaDest });
+        const lista = masivoPayload && masivoPayload.casos.length ? masivoPayload.casos : [numeroCaso];
+        for (const c of lista) {
+          await data.crearYEnviarPool({ userId: perfil.id, tipoId, numeroCaso: c, minutos: min, mesa: mesaDest });
+        }
         setModal(null);
-        fire("Caso creado y enviado al contenedor de " + mesaLabel(mesaDest));
+        fire(`${lista.length} caso(s) creado(s) y enviado(s) al contenedor de ${mesaLabel(mesaDest)}`);
         reload(); reloadPool();
         return;
       }
       // Otro segmento (no mayoristas): solo cuenta la creación, no queda en ninguna bandeja.
       if (destinoId === "__ext__") {
-        await data.crearOtroSegmento({ userId: perfil.id, tipoId, minutos: min, numeroCaso });
+        const lista = masivoPayload && masivoPayload.casos.length ? masivoPayload.casos : [numeroCaso];
+        for (const c of lista) {
+          await data.crearOtroSegmento({ userId: perfil.id, tipoId, minutos: min, numeroCaso: c });
+        }
         setModal(null);
-        fire("Creación registrada — caso de otro segmento (no queda en bandeja)");
+        fire(`Creación registrada — ${lista.length} caso(s) de otro segmento (no quedan en bandeja)`);
         reload();
         return;
       }
@@ -548,12 +554,10 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                 <span className="destlbl">Asignar a mí</span>
                 <span className="destsub">Queda en mi bandeja para seguimiento</span>
               </button>
-              {!masivo && (
-                <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
-                  <span className="destlbl">Otro segmento</span>
-                  <span className="destsub">No es de tu segmento — solo cuenta la creación, no queda en bandeja</span>
-                </button>
-              )}
+              <button className={"destopt" + (destino === "__ext__" ? " on" : "")} onClick={() => setDestino("__ext__")}>
+                <span className="destlbl">Otro segmento</span>
+                <span className="destsub">No es de tu segmento — solo cuenta la creación, no queda en bandeja</span>
+              </button>
               <div className="destdiv">o pásaselo a un analista</div>
               <select className="inp" value={otros.some((u: Usuario) => u.id === destino) ? destino : ""} onChange={(e) => setDestino(e.target.value)}>
                 <option value="">Selecciona un analista…</option>
@@ -561,7 +565,7 @@ function RegistrarModal({ modal, catalogo, onClose, onSave, incluirSenior = fals
                   <option key={u.id} value={u.id}>{u.nombre}{u.apellido ? " " + u.apellido : ""}{u.cargo ? " · " + u.cargo : ""}</option>
                 ))}
               </select>
-              {!masivo && mesasPool.length > 0 && (
+              {mesasPool.length > 0 && (
                 <>
                   <div className="destdiv">o envíalo al contenedor de otra mesa</div>
                   <select className="inp" value={String(destino).startsWith("pool:") ? destino : ""} onChange={(e) => setDestino(e.target.value)}>
