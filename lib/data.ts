@@ -332,6 +332,13 @@ export async function guardarMeta(mesa: string, gestionesDia: number) {
   const { error } = await sb.from("metas_mesa").upsert({ mesa, gestiones_dia: gestionesDia, actualizado_at: new Date().toISOString() });
   if (error) throw error;
 }
+// ¿Los agentes de esta mesa pueden repartir seguimiento entre ellos?
+// (Todos los segmentos sí, menos Básicos, que queda solo para el senior.)
+export async function guardarRepartoAgente(mesa: string, reparteAgente: boolean) {
+  const sb = createClient();
+  const { error } = await sb.from("mesas").update({ reparte_agente: reparteAgente }).eq("nombre", mesa);
+  if (error) throw error;
+}
 
 // ── Supervisión avanzada ──────────────────────────────────────────
 // Personas en línea SIN pausa y SIN actividad de PC hace >30 min.
