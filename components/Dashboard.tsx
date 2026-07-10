@@ -647,10 +647,23 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
     data.getMiBandeja(sel).then(setBandeja);
   };
 
-  // Contenedor general de MI mesa: los casos que otras mesas nos enviaron.
+  // Contenedor general: mi mesa; y todas las mesas de mi grupo si es MIXTO
+  // (Élite+Distrito se apoyan en cualquier horario).
   const [pool, setPool] = useState<any[]>([]);
-  const reloadPool = () => data.getPoolPendientes().then((l: any[]) => setPool(l.filter((p) => p.mesa === perfil.mesa))).catch(() => {});
-  useEffect(() => { reloadPool(); const t = setInterval(reloadPool, 60000); return () => clearInterval(t); /* eslint-disable-next-line */ }, []);
+  const [mixto, setMixto] = useState(false);
+  const grupoMesasRef = useRef<Set<string>>(new Set(perfil.mesa ? [perfil.mesa] : []));
+  const reloadPool = () => data.getPoolPendientes().then((l: any[]) => setPool(l.filter((p) => grupoMesasRef.current.has(p.mesa)))).catch(() => {});
+  useEffect(() => {
+    data.getMesas().then((ms: any[]) => {
+      const miGrupo = ms.find((m) => m.nombre === perfil.mesa)?.grupo || perfil.mesa;
+      const grupo = ms.filter((m) => (m.grupo || m.nombre) === miGrupo);
+      const esMixto = grupo.some((m) => m.grupo_mixto);
+      grupoMesasRef.current = new Set(esMixto ? grupo.map((m) => m.nombre) : (perfil.mesa ? [perfil.mesa] : []));
+      setMixto(esMixto);
+      reloadPool();
+    }).catch(() => {});
+    const t = setInterval(reloadPool, 60000); return () => clearInterval(t); /* eslint-disable-next-line */
+  }, [perfil.mesa]);
   const asignarPool = async (poolId: string, destinoId: string) => {
     if (!destinoId) return;
     try {
@@ -705,8 +718,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 
           {pool.length > 0 && (
             <div className="card mt15">
-              <div className="row-between mb10"><div className="h2">Contenedor general de tu mesa</div><span className="chip medio">{pool.length} sin asignar</span></div>
-              <div className="sub small mb10">Casos que otras mesas enviaron a {perfil.mesa ? mesaLabel(perfil.mesa) : "tu mesa"}. Asígnalos a tu equipo.</div>
+              <div className="row-between mb10"><div className="h2">{mixto ? "Contenedor general de tu grupo" : "Contenedor general de tu mesa"}</div><span className="chip medio">{pool.length} sin asignar</span></div>
+              <div className="sub small mb10">{mixto ? "Casos enviados a las mesas de tu grupo (Élite y Distrito se apoyan). Asígnalos a tu equipo." : `Casos que otras mesas enviaron a ${perfil.mesa ? mesaLabel(perfil.mesa) : "tu mesa"}. Asígnalos a tu equipo.`}</div>
               <div className="col9">
                 {pool.map((p: any) => (
                   <div key={p.id} className="casecard">
@@ -714,7 +727,8 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
                       <div className="caseno">#{p.numero_caso}</div>
                       {p.cliente && <div className="caseCli">{p.cliente}</div>}
                       <div className="caseMeta">
-                        {p.creador && <span className="faint">envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
+                        {mixto && <span className="chip bajo s11">{mesaLabel(p.mesa)}</span>}
+                        {p.creador && <span className="faint">{mixto ? "· " : ""}envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
                         <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                       </div>
                     </div>
