@@ -1222,17 +1222,25 @@ function ResumenView() {
         ]);
         if (!vivo) return;
         setKpis(k); setKpisPrev(kp); setRanking(rk); setClientes(cl); setTipos(tp); setTend(te); setResolucion(rs); setPorMes(mm);
-        // Comparativo entre mesas/grupos (solo con la vista global y varias mesas).
-        if (!m && !p && (mesas as any[]).length > 1) {
-          const grupos = [...new Set((mesas as any[]).map((x: any) => x.grupo || x.nombre))];
+        // Comparativo entre segmentos (todos los grupos, aunque haya una mesa
+        // seleccionada; solo se omite al filtrar por una persona puntual).
+        const visibles = (mesas as any[]).filter((x: any) => !x.oculta);
+        if (!p && visibles.length > 1) {
+          const grupos = [...new Set(visibles.map((x: any) => x.grupo || x.nombre))];
           const kpisG = await Promise.all(grupos.map((g) => data.gKpis(desde, hasta, null, g).catch(() => null)));
           if (!vivo) return;
           setPorMesa(grupos.map((g, i) => ({
+            grupo: g,
             mesa: mesaLabel(g),
             efectividad: kpisG[i]?.efectividad ?? 0,
             productividad: kpisG[i]?.productividad ?? 0,
             gestiones: kpisG[i]?.gestiones ?? 0,
-          })).filter((x) => x.gestiones > 0 || x.efectividad > 0));
+            gestionados: kpisG[i]?.gestionados ?? 0,
+            asignados: kpisG[i]?.asignados ?? 0,
+            personas: kpisG[i]?.personas ?? 0,
+            minutos: kpisG[i]?.minutos ?? 0,
+            alertas: kpisG[i]?.alertas ?? 0,
+          })).filter((x) => x.gestiones > 0 || x.efectividad > 0 || x.asignados > 0));
         } else setPorMesa([]);
       } finally { if (vivo) setLoading(false); }
     })();
@@ -1324,21 +1332,50 @@ function ResumenView() {
           )}
 
           {porMesa.length > 1 && (
-            <div className="card mt15">
-              <div className="h2 mb4">Comparativo por segmento</div>
-              <div className="sub small mb10">Efectividad y productividad de cada mesa o grupo en el periodo.</div>
-              <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={porMesa} margin={{ left: -16 }}>
-                  <CartesianGrid vertical={false} stroke="#EEF1F6" />
-                  <XAxis dataKey="mesa" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
-                  <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
-                  <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={30} />
-                  <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[5, 5, 0, 0]} maxBarSize={30} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <>
+              <div className="bandlbl mt16">Comparativo entre segmentos</div>
+              <div className="card mt8">
+                <div className="h2 mb4">Efectividad y productividad por segmento</div>
+                <div className="sub small mb10">Cada mesa o grupo en el periodo{mesa ? " · resaltado el segmento seleccionado" : ""}.</div>
+                <div className="legend"><span className="legdot"><i style={{ background: "#0098D6" }} />Efectividad</span><span className="legdot"><i style={{ background: "#6D5AE6" }} />Productividad</span></div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={porMesa} margin={{ left: -16 }}>
+                    <CartesianGrid vertical={false} stroke="#EEF1F6" />
+                    <XAxis dataKey="mesa" tick={{ fontSize: 11, fill: "#5C6883" }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: "#95A1B9" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E1E9F3", fontSize: 12 }} />
+                    <Bar dataKey="efectividad" name="Efectividad" fill="#0098D6" radius={[5, 5, 0, 0]} maxBarSize={30} />
+                    <Bar dataKey="productividad" name="Productividad" fill="#6D5AE6" radius={[5, 5, 0, 0]} maxBarSize={30} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="card nopad mt15">
+                <div className="tblscroll">
+                  <table className="tbl">
+                    <thead><tr><th>Segmento</th><th>Efectividad</th><th>Productividad</th><th>Gestiones</th><th>Hechos / Asig.</th><th>Personas</th><th>Tiempo</th><th>Alertas</th></tr></thead>
+                    <tbody>
+                      {[...porMesa].sort((a: any, b: any) => (b.productividad ?? 0) - (a.productividad ?? 0)).map((s: any) => {
+                        const sel = !!mesa && s.grupo === mesa;
+                        const chipEf = s.efectividad >= (cfg.meta_efectividad ?? 85) ? "done" : s.efectividad >= 50 ? "medio" : "alto";
+                        const chipPr = s.productividad >= (cfg.meta_productividad ?? 80) ? "done" : s.productividad >= 50 ? "medio" : "alto";
+                        return (
+                          <tr key={s.grupo} style={sel ? { background: "rgba(0,152,214,0.08)" } : undefined}>
+                            <td className="bold">{s.mesa}{sel && <span className="chip bajo s11" style={{ marginLeft: 6 }}>Seleccionado</span>}</td>
+                            <td><span className={"chip " + chipEf + " s11"}>{s.efectividad}%</span></td>
+                            <td><span className={"chip " + chipPr + " s11"}>{s.productividad}%</span></td>
+                            <td className="mono">{s.gestiones}</td>
+                            <td className="mono">{s.gestionados}/{s.asignados}</td>
+                            <td className="mono">{s.personas}</td>
+                            <td className="mono">{horas(s.minutos)}</td>
+                            <td>{s.alertas > 0 ? <span className="chip alto s11">{s.alertas}</span> : <span className="faint">0</span>}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
 
           {tline.length > 0 && (
