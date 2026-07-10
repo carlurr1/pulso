@@ -2950,6 +2950,220 @@ function CargaView({ perfil }: { perfil: Usuario }) {
   );
 }
 
+/* ════════════════ DISTRIBUCIÓN INGENIEROS ════════════════ */
+// Selecciona un ingeniero y ve su bolsa ACTUAL de casos (abiertos + arrastre),
+// con cliente, estado, desde cuándo y quién se lo asignó. Senior ve a su grupo;
+// coordinación/admin ve toda la operación con filtro de mesa.
+function DistribucionView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => void }) {
+  const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+  const [equipo, setEquipo] = useState<Usuario[]>([]);
+  const [cargas, setCargas] = useState<Record<string, { abiertos: number; asignados: number }>>({});
+  const [mesa, setMesa] = useState("");
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState<string>("");
+  const [bandeja, setBandeja] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Lista de ingenieros según el rol.
+  useEffect(() => {
+    let vivo = true;
+    (priv ? data.getUsuarios() : data.getEquipo(null))
+      .then((l) => {
+        if (!vivo) return;
+        const ing = l.filter((u) => (u.rol === "agente" || u.rol === "senior") && u.activo && (!priv || !mesa || u.mesa === mesa));
+        setEquipo(ing);
+        setSel((s) => (s && ing.some((u) => u.id === s) ? s : (ing[0]?.id ?? "")));
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+    /* eslint-disable-next-line */
+  }, [mesa]);
+
+  // Conteo de bolsa abierta por persona (últimos 30 días de arrastre) para el badge.
+  const reloadCargas = () => data.cargaEquipo(isoHace(30), todayISO(), priv ? (mesa || null) : null)
+    .then((d: any[]) => setCargas(Object.fromEntries(d.map((f) => [f.user_id, { abiertos: f.pendientes, asignados: f.asignados }]))))
+    .catch(() => {});
+  useEffect(() => { reloadCargas(); /* eslint-disable-next-line */ }, [mesa]);
+
+  // Bolsa detallada del ingeniero seleccionado.
+  const reloadBandeja = () => {
+    if (!sel) { setBandeja([]); return; }
+    setLoading(true);
+    data.bolsaIngeniero(sel).then((b) => setBandeja(b)).catch(() => setBandeja([])).finally(() => setLoading(false));
+  };
+  useEffect(() => { reloadBandeja(); /* eslint-disable-next-line */ }, [sel]);
+
+  const target = equipo.find((u) => u.id === sel);
+  const vistos = equipo.filter((u) => matchNombre(q, u.nombre, u.apellido));
+  const abiertos = bandeja.filter((a) => a.estado !== "gestionado");
+  const cerrados = bandeja.length - abiertos.length;
+
+  return (
+    <div>
+      <div className="row-between end">
+        <div>
+          <div className="eyebrow">{priv ? "Coordinación · Help Desk" : "Senior · tu grupo"}</div>
+          <div className="h1">Distribución Ingenieros</div>
+        </div>
+        <div className="toolbar">
+          {priv && <MesaSelector mesa={mesa} setMesa={setMesa} />}
+          <button className="btn ghost" onClick={() => { reloadCargas(); reloadBandeja(); }}><Activity size={15} />Actualizar</button>
+        </div>
+      </div>
+      <div className="sub small mt3 mb20">Selecciona un ingeniero para ver su bolsa actual de casos: quién se los asignó, desde cuándo y en qué estado.</div>
+
+      <div className="grid seniorLayout">
+        <div className="card selfstart">
+          <div className="mb10"><BuscaNombre value={q} setValue={setQ} placeholder="Buscar ingeniero…" /></div>
+          <div className="col6">
+            {vistos.length === 0 && <div className="empty pad24">Sin ingenieros.</div>}
+            {vistos.map((u) => {
+              const c = cargas[u.id];
+              return (
+                <button key={u.id} className={"nav navlight" + (sel === u.id ? " navon" : "")} onClick={() => setSel(u.id)}>
+                  <span className="navperson"><span className="uava small">{initials(u)}</span><span className="navname">{firstLast(u.nombre, u.apellido)}</span></span>
+                  {c && c.abiertos > 0 && <span className="chip pend s11">{c.abiertos}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="col15">
+          <div className="card">
+            <div className="row-between mb12">
+              <div className="h2">Bolsa de {target ? firstLast(target.nombre, target.apellido) : "—"}</div>
+              <div className="gap10 center-row">
+                <span className="chip pend">{abiertos.length} abiertos</span>
+                {cerrados > 0 && <span className="chip done">{cerrados} gestionados</span>}
+              </div>
+            </div>
+            {loading ? <div className="empty pad24">Cargando…</div>
+              : bandeja.length === 0 ? <div className="empty pad24">Este ingeniero no tiene casos en su bolsa.</div>
+              : (
+                <div className="tblscroll">
+                  <table className="tbl">
+                    <thead><tr><th>Caso</th><th>Cliente</th><th>Estado</th><th>Desde</th><th>Origen</th></tr></thead>
+                    <tbody>
+                      {bandeja.map((a: any) => {
+                        const em = ESTADO_META[a.estado] ?? { label: a.estado, chip: "sin" };
+                        const desde = a.created_at
+                          ? new Date(a.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+                          : fmtFecha(a.fecha);
+                        return (
+                          <tr key={a.id}>
+                            <td className="mono s12">#{a.numero_caso.replace(/^EXT-/, "")}</td>
+                            <td className="s12">{a.numero_caso.startsWith("EXT-") ? <span className="chip neutral s11">Otro segmento</span> : (a.cliente ?? <span className="faint">—</span>)}</td>
+                            <td><span className={"chip " + em.chip}>{em.label}</span></td>
+                            <td className="mono s12">{desde}</td>
+                            <td className="s12">{!a.asignado_por ? <span className="faint">—</span> : a.asignado_por === a.user_id ? <span className="chip neutral s11">Propio</span> : <span className="chip bajo s11">Repartido</span>}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════ BUSCADOR GLOBAL DE CASOS (barra superior) ════════════════ */
+// Pega un número de caso → localiza dónde está: en qué bolsa sigue sin asignar,
+// o quién lo tiene asignado, desde cuándo y en qué estado. Senior/privilegiado.
+function BuscadorCaso() {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState<data.CasoUbicacion | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 40); }, [open]);
+
+  const buscar = async () => {
+    const caso = q.trim();
+    if (!caso) return;
+    setBusy(true); setErr(""); setRes(null);
+    try { setRes(await data.buscarCaso(caso)); }
+    catch (e: any) { setErr(e.message ?? "No se pudo buscar"); }
+    finally { setBusy(false); }
+  };
+
+  const cerrar = () => { setOpen(false); setQ(""); setRes(null); setErr(""); };
+  const fmt = (iso: string) => new Date(iso).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const vacio = res && res.pool.length === 0 && res.asignaciones.length === 0;
+
+  return (
+    <div className="notifwrap">
+      <button className="notifbtn" title="Buscar un caso" onClick={() => setOpen(true)}><Search size={17} /></button>
+      {open && (
+        <div className="overlay alta" onClick={cerrar}>
+          <div className="modal narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="modalBody">
+            <div className="row-between mb12">
+              <div className="h2">Buscar caso</div>
+              <button className="xbtn" onClick={cerrar}><X size={16} /></button>
+            </div>
+            <div className="searchwrap mb12">
+              <Search size={15} className="searchico" />
+              <input ref={inputRef} className="inp searchinp" placeholder="Pega el número de caso… ej. 20202020"
+                value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") buscar(); }} />
+              <button className="btn primary" disabled={!q.trim() || busy} onClick={buscar}>{busy ? "Buscando…" : "Buscar"}</button>
+            </div>
+
+            {err && <div className="empty pad24" style={{ color: "var(--danger, #E5484D)" }}>{err}</div>}
+
+            {res && !err && (
+              <div className="col9">
+                <div className="row-between">
+                  <div className="caseno">#{res.caso}</div>
+                  {res.cliente && <span className="chip bajo s11">{res.cliente}</span>}
+                </div>
+
+                {vacio && <div className="empty pad24">No aparece en ninguna bolsa ni asignado a nadie hoy.</div>}
+
+                {res.pool.map((p, i) => (
+                  <div key={"p" + i} className="casecard">
+                    <div className="min0">
+                      <div className="bold s13">{p.fuera_horario ? "En la bolsa de horario no hábil" : "En el contenedor de " + mesaLabel(p.mesa)}</div>
+                      <div className="caseMeta">
+                        <span className="chip medio s11">Sin asignar</span>
+                        {p.creador && <span className="faint">· envió {p.creador}</span>}
+                        <span className="faint">· desde {fmt(p.created_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {res.asignaciones.map((a, i) => {
+                  const em = ESTADO_META[a.estado] ?? { label: a.estado, chip: "sin" };
+                  return (
+                    <div key={"a" + i} className="casecard">
+                      <div className="min0">
+                        <div className="bold s13">{a.ingeniero ?? "—"}{a.mesa && <span className="faint"> · {mesaLabel(a.mesa)}</span>}</div>
+                        <div className="caseMeta">
+                          <span className={"chip " + em.chip + " s11"}>{em.label}</span>
+                          <span className="faint">· desde {fmt(a.created_at)}</span>
+                          {a.asignado_por && <span className="faint">· asignó {a.asignado_por}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════════════════ HORARIOS (todos los roles) ════════════════ */
 function HorariosView({ perfil }: { perfil: Usuario }) {
   const [monday, setMonday] = useState(_mondayActual());
@@ -3074,6 +3288,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga del equipo", icon: TrendingUp },
+    { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "horario", label: "Horarios del grupo", icon: Clock },
   ],
@@ -3083,6 +3298,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga", icon: TrendingUp },
+    { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
@@ -3094,6 +3310,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
     { key: "carga", label: "Carga", icon: TrendingUp },
+    { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
@@ -3443,6 +3660,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
               ))}
             </div>
           ) : <div className="chip neutral">{perfil.cargo}</div>}
+          {perfil.rol !== "agente" && <BuscadorCaso />}
           {(rolEfectivo === "agente" || rolEfectivo === "senior") && (
             <div className="notifwrap">
               <button className="notifbtn" title="Notificaciones" onClick={() => { setNotifOpen(!notifOpen); setNoLeidas(0); }}>
@@ -3478,6 +3696,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "senior" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
+          {vista === "senior" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "senior" && section === "horario" && <HorariosView perfil={perfil} />}
           {vista === "coordinador" && section === "tablero" && <CoordView tab="tablero" />}
@@ -3485,6 +3704,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "coordinador" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "coordinador" && section === "carga" && <CargaView perfil={perfil} />}
+          {vista === "coordinador" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
           {vista === "coordinador" && section === "horario" && <HorariosView perfil={perfil} />}
@@ -3494,6 +3714,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "superadmin" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
           {vista === "superadmin" && section === "carga" && <CargaView perfil={perfil} />}
+          {vista === "superadmin" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
           {vista === "superadmin" && section === "horario" && <HorariosView perfil={perfil} />}
