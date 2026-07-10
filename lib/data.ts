@@ -204,13 +204,32 @@ export async function getEquipoRepartir(miMesa?: string | null): Promise<Usuario
   const miGrupo = (mesas.find((m: any) => m.nombre === miMesa)?.grupo) || miMesa;
   const grupoMesas = mesas.filter((m: any) => (m.grupo || m.nombre) === miGrupo);
   const mixto = grupoMesas.some((m: any) => m.grupo_mixto);
+  let base: Usuario[];
   if (mixto && grupoMesas.length) {
     const nombres = new Set(grupoMesas.map((m: any) => m.nombre));
     const todos = await getEquipo(null);
-    return todos.filter((u) => u.rol === "agente" && u.mesa && nombres.has(u.mesa));
+    base = todos.filter((u) => u.rol === "agente" && u.mesa && nombres.has(u.mesa));
+  } else {
+    const propia = await getEquipo(miMesa);
+    base = propia.filter((u) => u.rol === "agente");
   }
-  const propia = await getEquipo(miMesa);
-  return propia.filter((u) => u.rol === "agente");
+  // Mesas de APOYO: agentes de otra mesa que apoya a la mía (ej. MEN apoya a
+  // Premium 4). En horario hábil el senior también les reparte casos.
+  const apoyo = new Set(mesas.filter((m: any) => m.apoya_mesa === miMesa).map((m: any) => m.nombre));
+  if (apoyo.size) {
+    const todos = await getEquipo(null);
+    for (const u of todos) {
+      if (u.rol === "agente" && u.mesa && apoyo.has(u.mesa) && !base.some((b) => b.id === u.id)) base.push(u);
+    }
+  }
+  return base;
+}
+
+// La mesa que MI mesa apoya (ej. MEN → PREMIUM 4). Usada por la vista de
+// horario no hábil para mostrar también el contenedor de esa mesa.
+export async function getMesaApoyo(miMesa?: string | null): Promise<string | null> {
+  const mesas = await getMesas().catch(() => [] as any[]);
+  return (mesas.find((m: any) => m.nombre === miMesa)?.apoya_mesa) ?? null;
 }
 
 export async function repartirSeguimiento(opts: {

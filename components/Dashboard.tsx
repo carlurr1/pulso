@@ -780,9 +780,14 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
   const [pool, setPool] = useState<any[]>([]);
   const [equipo, setEquipo] = useState<Usuario[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const reload = () => data.getPoolNoHabil().then(setPool).catch(() => {});
+  // Mesa que la mía apoya (ej. MEN → PREMIUM 4): fuera de horario también
+  // se muestra su contenedor (la RLS solo lo deja ver en horario no hábil).
+  const apoyaMesaRef = useRef<string | null>(null);
+  const reload = () => data.getPoolPendientes()
+    .then((l: any[]) => setPool(l.filter((p) => p.fuera_horario === true || (apoyaMesaRef.current && p.mesa === apoyaMesaRef.current))))
+    .catch(() => {});
   useEffect(() => {
-    reload();
+    data.getMesaApoyo(perfil.mesa).then((m) => { apoyaMesaRef.current = m; reload(); }).catch(() => reload());
     if (perfil.mesa) {
       data.getEquipo(perfil.mesa)
         .then((eq) => setEquipo(eq.filter((u) => u.id !== perfil.id && (u.rol === "agente" || u.rol === "senior"))))
