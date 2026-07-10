@@ -609,6 +609,31 @@ export async function getClienteCaso(numeroCaso: string): Promise<string | null>
   return (data as any)?.cliente ?? null;
 }
 
+// Buscador global (senior/privilegiado): localiza un caso puntual en toda la
+// operación y devuelve si sigue en una bolsa y/o quién lo tiene asignado,
+// desde cuándo y en qué estado. Salta la RLS vía RPC SECURITY DEFINER.
+export type CasoUbicacion = {
+  caso: string | null;
+  cliente: string | null;
+  pool: { mesa: string; fuera_horario: boolean; created_at: string; creador: string | null }[];
+  asignaciones: {
+    ingeniero_id: string; ingeniero: string | null; mesa: string | null;
+    estado: string; fecha: string; created_at: string; asignado_por: string | null;
+  }[];
+};
+export async function buscarCaso(numeroCaso: string): Promise<CasoUbicacion> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("buscar_caso", { p_caso: numeroCaso.trim() });
+  if (error) throw new Error(error.message);
+  return data as CasoUbicacion;
+}
+
+// Bolsa actual (casos abiertos + arrastre) de cualquier ingeniero, para la
+// vista Distribución Ingenieros. RLS: senior ve a todos; privilegiado también.
+export async function bolsaIngeniero(userId: string): Promise<Asignacion[]> {
+  return getMiBandeja(userId);
+}
+
 // ── ANUNCIOS ANCLADOS (con confirmación de lectura) ───────────────
 export async function crearAnuncio(mensaje: string, requiereRespuesta: boolean, deNombre: string, mesa?: string | null) {
   const sb = createClient();
