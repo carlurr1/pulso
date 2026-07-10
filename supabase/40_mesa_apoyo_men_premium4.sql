@@ -1,19 +1,19 @@
 -- ════════════════════════════════════════════════════════════════
---  40 · MESA DE APOYO (MEN apoya a PREMIUM 4)
+--  40 · MESA DE APOYO (MEN apoya a PREMIUM 3)
 --  · Una mesa puede "apoyar" a otra (columna mesas.apoya_mesa). Regla
---    del negocio para MEN → PREMIUM 4:
+--    del negocio para MEN → PREMIUM 3:
 --     - Horario NO hábil: los ingenieros de MEN VEN y TOMAN los casos
---       del contenedor de PREMIUM 4 (apoyo fuera de horario).
---     - Horario hábil: el senior de PREMIUM 4 VE a los de MEN y les
---       puede ASIGNAR casos de PREMIUM 4 (reparto y contenedor).
+--       del contenedor de PREMIUM 3 (apoyo fuera de horario).
+--     - Horario hábil: el senior de PREMIUM 3 VE a los de MEN y les
+--       puede ASIGNAR casos de PREMIUM 3 (reparto y contenedor).
 --  · Genérico y reutilizable: cualquier mesa con apoya_mesa = X hereda
 --    la misma relación con X. No afecta a las demás mesas.
 --  Ejecutar después de 39.
 -- ════════════════════════════════════════════════════════════════
 
--- ── Columna de apoyo + emparejamiento MEN → PREMIUM 4 ──────────────
+-- ── Columna de apoyo + emparejamiento MEN → PREMIUM 3 ──────────────
 alter table public.mesas add column if not exists apoya_mesa text;
-update public.mesas set apoya_mesa = 'PREMIUM 4' where nombre = 'MEN';
+update public.mesas set apoya_mesa = 'PREMIUM 3' where nombre = 'MEN';
 
 -- ¿La mesa p_apoyo apoya a la mesa p_mesa?
 create or replace function public.apoya_a(p_apoyo text, p_mesa text)
@@ -26,7 +26,7 @@ $$;
 grant execute on function public.apoya_a(text, text) to anon, authenticated;
 
 -- ── RLS: visibilidad ───────────────────────────────────────────────
--- Contenedor: MEN ve el contenedor de PREMIUM 4 SOLO en horario no hábil.
+-- Contenedor: MEN ve el contenedor de PREMIUM 3 SOLO en horario no hábil.
 drop policy if exists pool_select on public.casos_pool;
 create policy pool_select on public.casos_pool for select
   using (
@@ -36,7 +36,7 @@ create policy pool_select on public.casos_pool for select
     or (public.apoya_a(public.mi_mesa(), mesa) and not public.es_horario_habil())
   );
 
--- Usuarios: el senior/equipo de PREMIUM 4 ve a los usuarios de MEN
+-- Usuarios: el senior/equipo de PREMIUM 3 ve a los usuarios de MEN
 -- (la mesa de apoyo), para poder repartirles.
 drop policy if exists usuarios_select on public.usuarios;
 create policy usuarios_select on public.usuarios for select
@@ -47,7 +47,7 @@ create policy usuarios_select on public.usuarios for select
     or public.apoya_a(mesa, public.mi_mesa())
   );
 
--- ── RLS: reparto (asignaciones) — senior de PREMIUM 4 → agentes de MEN ──
+-- ── RLS: reparto (asignaciones) — senior de PREMIUM 3 → agentes de MEN ──
 drop policy if exists asig_insert on public.asignaciones;
 create policy asig_insert on public.asignaciones for insert
   with check (
@@ -117,7 +117,7 @@ begin
         ))
     -- Horario hábil · senior de la mesa del contenedor (o de su grupo, si
     -- es mixto), asignando a alguien del grupo del contenedor O a un agente
-    -- de una mesa que apoya al contenedor (MEN apoya a Premium 4).
+    -- de una mesa que apoya al contenedor (MEN apoya a Premium 3).
     or (not v.fuera_horario and public.mi_rol() = 'senior'
         and (public.mi_mesa() = v.mesa
              or (mixto and public.grupo_de(v.mesa) = public.mi_grupo()))
@@ -130,7 +130,7 @@ begin
           or (public.grupo_de(v.mesa) = public.mi_grupo() and (finde or mixto))
         ))
     -- Apoyo fuera de horario: un agente de MEN se toma un caso del
-    -- contenedor de Premium 4 (la mesa que apoya) en horario no hábil.
+    -- contenedor de Premium 3 (la mesa que apoya) en horario no hábil.
     or (p_destino = auth.uid()
         and public.apoya_a(public.mi_mesa(), v.mesa)
         and not public.es_horario_habil());

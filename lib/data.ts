@@ -214,7 +214,7 @@ export async function getEquipoRepartir(miMesa?: string | null): Promise<Usuario
     base = propia.filter((u) => u.rol === "agente");
   }
   // Mesas de APOYO: agentes de otra mesa que apoya a la mía (ej. MEN apoya a
-  // Premium 4). En horario hábil el senior también les reparte casos.
+  // Premium 3). En horario hábil el senior también les reparte casos.
   const apoyo = new Set(mesas.filter((m: any) => m.apoya_mesa === miMesa).map((m: any) => m.nombre));
   if (apoyo.size) {
     const todos = await getEquipo(null);
@@ -225,7 +225,7 @@ export async function getEquipoRepartir(miMesa?: string | null): Promise<Usuario
   return base;
 }
 
-// La mesa que MI mesa apoya (ej. MEN → PREMIUM 4). Usada por la vista de
+// La mesa que MI mesa apoya (ej. MEN → PREMIUM 3). Usada por la vista de
 // horario no hábil para mostrar también el contenedor de esa mesa.
 export async function getMesaApoyo(miMesa?: string | null): Promise<string | null> {
   const mesas = await getMesas().catch(() => [] as any[]);
