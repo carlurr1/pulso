@@ -46,14 +46,13 @@ update public.casos_pool cp
        asignado_a   = a.user_id,
        asignado_por = coalesce(a.asignado_por, cp.asignado_por),
        asignado_at  = coalesce(cp.asignado_at, now())
-  from lateral (
-    select az.user_id, az.asignado_por
+  from (
+    select distinct on (az.numero_caso) az.numero_caso, az.user_id, az.asignado_por
     from public.asignaciones az
-    where az.numero_caso = cp.numero_caso
-    order by az.fecha desc, az.created_at desc
-    limit 1
+    order by az.numero_caso, az.fecha desc, az.created_at desc
   ) a
- where cp.estado = 'pendiente';
+ where a.numero_caso = cp.numero_caso
+   and cp.estado = 'pendiente';
 
 -- ════════════════════════════════════════════════════════════════
 --  BUSCADOR GLOBAL DE CASOS
