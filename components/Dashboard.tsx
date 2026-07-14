@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon, Boxes,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -194,22 +194,33 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
     return () => clearInterval(t);
   }, []);
 
-  // Contenedor general del grupo (casos cruzados entre subsegmentos).
+  // Contenedor de MI grupo: mi mesa (o todo el grupo si es mixto) + la mesa
+  // que apoyo (ej. MEN → Premium 3). Solo esos casos, no toda la operación.
   const [pool, setPool] = useState<any[]>([]);
   const [mesas, setMesas] = useState<any[]>([]);
-  const [poolBusy, setPoolBusy] = useState<string | null>(null);
-  const reloadPool = () => data.getPoolPendientes().then(setPool).catch(() => {});
+  const [personas, setPersonas] = useState<Usuario[]>([]);
+  const [mixto, setMixto] = useState(false);
+  const scopeRef = useRef<Set<string>>(new Set(perfil.mesa ? [perfil.mesa] : []));
+  const puedeMasivo = perfil.rol !== "agente";   // senior/coordinación reparten y mueven
+  const reloadPool = () => data.getPoolPendientes()
+    .then((l: any[]) => setPool(l.filter((p) => scopeRef.current.has(p.mesa)))).catch(() => {});
   useEffect(() => {
-    reloadPool(); data.getMesas().then(setMesas).catch(() => {});
+    data.getMesas().then((ms: any[]) => {
+      setMesas(ms.filter((m) => !m.oculta));
+      const miGrupo = ms.find((m) => m.nombre === perfil.mesa)?.grupo || perfil.mesa;
+      const grupo = ms.filter((m) => (m.grupo || m.nombre) === miGrupo);
+      const esMixto = grupo.some((m) => m.grupo_mixto);
+      const base = esMixto ? grupo.map((m) => m.nombre) : (perfil.mesa ? [perfil.mesa] : []);
+      const apoya = ms.find((m) => m.nombre === perfil.mesa)?.apoya_mesa;
+      scopeRef.current = new Set([...base, ...(apoya ? [apoya] : [])]);
+      setMixto(esMixto);
+      reloadPool();
+    }).catch(() => reloadPool());
+    if (puedeMasivo) data.getEquipoRepartir(perfil.mesa).then(setPersonas).catch(() => {});
     const t = setInterval(reloadPool, 60000);
     return () => clearInterval(t);
+    // eslint-disable-next-line
   }, []);
-  const tomarPool = async (p: any) => {
-    setPoolBusy(p.id);
-    try { await data.poolAsignar(p.id, perfil.id); fire(`Caso #${p.numero_caso} tomado — ya está en tu bandeja`); reload(); reloadPool(); }
-    catch (e: any) { fire("Error: " + (e.message ?? "")); }
-    finally { setPoolBusy(null); }
-  };
 
   const salir = async (tipo: data.PausaTipo) => {
     setPausaBusy(true);
@@ -351,24 +362,18 @@ function AgentView({ perfil, catalogo, fire, incluirSenior = false }: { perfil: 
       </div>
 
       {pool.length > 0 && (
-        <div className="card mt15">
-          <div className="row-between mb10"><div className="h2">Contenedor general</div><span className="chip medio">{pool.length} sin asignar</span></div>
-          <div className="sub small mb10">Casos enviados al contenedor de tu grupo. Los de tu mesa puedes tomarlos ya; los de otras mesas del grupo los asigna su senior (o tú mismo en fin de semana).</div>
-          <div className="col9">
-            {pool.map((p: any) => (
-              <div key={p.id} className="casecard">
-                <div className="min0">
-                  <div className="caseno">#{p.numero_caso}</div>
-                  {p.cliente && <div className="caseCli">{p.cliente}</div>}
-                  <div className="caseMeta">
-                    <span className="chip bajo s11">{mesaLabel(p.mesa)}</span>
-                    {p.creador && <span className="faint">· envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
-                  </div>
-                </div>
-                <button className="btn primary sm" disabled={poolBusy === p.id} onClick={() => tomarPool(p)}>Tomármelo</button>
-              </div>
-            ))}
+        <div className="mt15">
+          <div className="row-between mb10"><div className="h2">Contenedor {mixto ? "de tu grupo" : "general"}</div><span className="chip medio">{pool.length} sin asignar</span></div>
+          <div className="sub small mb10">
+            {puedeMasivo
+              ? "Casos sin asignar de tu grupo. Marca los que quieras y asígnalos a alguien, muévelos a otra bolsa o tómatelos."
+              : "Casos enviados al contenedor de tu grupo. Marca los que quieras y tómatelos."}
           </div>
+          <ContenedorPool
+            perfil={perfil} pool={pool} personas={personas} mesas={mesas}
+            onReload={() => { reload(); reloadPool(); }} fire={fire}
+            permitirAsignarOtro={puedeMasivo} permitirMover={puedeMasivo}
+          />
         </div>
       )}
 
@@ -923,6 +928,157 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
         )}
       </div>
     </>
+  );
+}
+
+/* ════════════════ CONTENEDOR (multiselección + acciones masivas) ════════════════ */
+// Lista reutilizable del pool con checks, filtros (mesa/caso/cliente) y barra
+// de acciones masivas: tomar a mí, asignar a una persona, mover a otra bolsa.
+function ContenedorPool({
+  perfil, pool, personas, mesas, onReload, fire, permitirAsignarOtro, permitirMover,
+}: {
+  perfil: Usuario; pool: any[]; personas: Usuario[]; mesas: any[];
+  onReload: () => void; fire: (m: string) => void;
+  permitirAsignarOtro: boolean; permitirMover: boolean;
+}) {
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [fMesa, setFMesa] = useState("");
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const mesasEnPool = useMemo(() => [...new Set(pool.map((p) => p.mesa))].sort(), [pool]);
+  const filtrado = pool.filter((p) => {
+    if (fMesa && p.mesa !== fMesa) return false;
+    if (q && !sinTildes(`${p.numero_caso} ${p.cliente ?? ""} ${mesaLabel(p.mesa)}`).includes(sinTildes(q))) return false;
+    return true;
+  });
+  const idsFiltrados = filtrado.map((p) => p.id);
+  const seleccion = idsFiltrados.filter((id) => sel.has(id));
+  const todos = filtrado.length > 0 && seleccion.length === filtrado.length;
+  const toggle = (id: string) => setSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleTodos = () => setSel(todos ? new Set() : new Set(idsFiltrados));
+
+  // Agrupa las personas por mesa para el desplegable de "asignar a".
+  const porMesa = useMemo(() => {
+    const m = new Map<string, Usuario[]>();
+    personas.forEach((u) => { const k = u.mesa || "—"; (m.get(k) ?? m.set(k, []).get(k)!).push(u); });
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [personas]);
+
+  const correr = async (fn: () => Promise<number>, verbo: string) => {
+    setBusy(true);
+    try {
+      const n = await fn();
+      fire(`${n} caso(s) ${verbo}.`);
+      setSel(new Set());
+      onReload();
+    } catch (e: any) { fire("Error: " + (e.message ?? "")); }
+    finally { setBusy(false); }
+  };
+  const tomarSel = (ids: string[]) => correr(() => data.poolAsignarMasivo(ids, perfil.id), "tomados por ti");
+  const asignarSel = (destinoId: string) => {
+    const d = personas.find((u) => u.id === destinoId);
+    correr(() => data.poolAsignarMasivo(seleccion, destinoId), `asignados a ${d ? firstLast(d.nombre, d.apellido) : "la persona"}`);
+    if (destinoId !== perfil.id && seleccion.length) pushUsuarios([destinoId], "Casos del contenedor asignados", `${perfil.nombre} te asignó ${seleccion.length} caso(s)`).catch(() => {});
+  };
+  const moverSel = (mesaDest: string) => correr(() => data.poolMoverMasivo(seleccion, mesaDest), `movidos a la bolsa de ${mesaLabel(mesaDest)}`);
+
+  return (
+    <div className="card nopad">
+      <div className="tblhead">
+        <div className="gap9 center-row">
+          <label className="checkall"><input type="checkbox" checked={todos} onChange={toggleTodos} disabled={!filtrado.length} /> Todos</label>
+          {mesasEnPool.length > 1 && (
+            <select className="inp dateinp" value={fMesa} onChange={(e) => setFMesa(e.target.value)}>
+              <option value="">Todas las mesas</option>
+              {mesasEnPool.map((m) => <option key={m} value={m}>{mesaLabel(m)}</option>)}
+            </select>
+          )}
+        </div>
+        <div className="searchwrap"><Search size={15} className="searchico" /><input className="inp searchinp" placeholder="Buscar caso o cliente…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      </div>
+
+      {seleccion.length > 0 && (
+        <div className="selbar">
+          <span className="chip neutral">{seleccion.length} seleccionado(s)</span>
+          <div className="gap9 center-row wrap">
+            <button className="btn primary sm" disabled={busy} onClick={() => tomarSel(seleccion)}>Tomármelos ({seleccion.length})</button>
+            {permitirAsignarOtro && (
+              <select className="inp dateinp" disabled={busy} defaultValue="" onChange={(e) => { const v = e.target.value; e.currentTarget.value = ""; if (v) asignarSel(v); }}>
+                <option value="">Asignar a…</option>
+                {porMesa.map(([m, us]) => (
+                  <optgroup key={m} label={mesaLabel(m)}>
+                    {us.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+            {permitirMover && (
+              <select className="inp dateinp" disabled={busy} defaultValue="" onChange={(e) => { const v = e.target.value; e.currentTarget.value = ""; if (v) moverSel(v); }} title="Mover a otra bolsa">
+                <option value="">Mover a bolsa de…</option>
+                {mesas.map((m) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="col9 pad14">
+        {filtrado.length === 0 ? <div className="empty pad24">Sin casos para este filtro.</div> :
+          filtrado.map((p: any) => (
+            <div key={p.id} className={"casecard selectable" + (sel.has(p.id) ? " on" : "")}>
+              <label className="casecheck"><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} /></label>
+              <div className="min0 grow">
+                <div className="caseno">#{p.numero_caso}</div>
+                {p.cliente && <div className="caseCli">{p.cliente}</div>}
+                <div className="caseMeta">
+                  <span className="chip bajo s11">{mesaLabel(p.mesa)}</span>
+                  {p.creador && <span className="faint">· envió {firstLast(p.creador.nombre, p.creador.apellido)}</span>}
+                  {p.created_at && <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>}
+                </div>
+              </div>
+              <button className="btn ghost sm" disabled={busy} onClick={() => tomarSel([p.id])}>Tomármelo</button>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+// Pestaña "Contenedor general": todos los casos sin asignar visibles (según
+// RLS: coordinación ve todo; senior ve su grupo). Silver queda oculto.
+function ContenedorGeneralView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => void }) {
+  const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+  const [pool, setPool] = useState<any[]>([]);
+  const [personas, setPersonas] = useState<Usuario[]>([]);
+  const [mesas, setMesas] = useState<any[]>([]);
+  const ocultasRef = useRef<Set<string>>(new Set());   // mesas que retienen (Silver): invisibles aquí
+  const reload = () => data.getPoolPendientes()
+    .then((l: any[]) => setPool(l.filter((p) => !ocultasRef.current.has(p.mesa))))
+    .catch(() => {});
+  useEffect(() => {
+    data.getMesas().then((ms: any[]) => {
+      ocultasRef.current = new Set(ms.filter((m) => m.retiene_no_habil).map((m) => m.nombre));
+      setMesas(ms.filter((m) => !m.oculta));
+      reload();
+    }).catch(() => reload());
+    (priv ? data.getUsuarios() : data.getEquipo(null))
+      .then((l) => setPersonas(l.filter((u) => u.activo && (u.rol === "agente" || u.rol === "senior"))))
+      .catch(() => {});
+    const t = setInterval(reload, 60000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line
+  }, []);
+
+  return (
+    <div>
+      <div className="row-between end">
+        <div><div className="eyebrow">{priv ? "Coordinación · Help Desk" : "Senior · tu grupo"}</div><div className="h1">Contenedor general</div></div>
+        <span className="chip medio">{pool.length} sin asignar</span>
+      </div>
+      <div className="sub small mt3 mb16">Casos que están en los contenedores y nadie ha tomado. Marca los que quieras y asígnalos a una persona, muévelos a otra bolsa o tómatelos.</div>
+      <ContenedorPool perfil={perfil} pool={pool} personas={personas} mesas={mesas} onReload={reload} fire={fire} permitirAsignarOtro permitirMover />
+    </div>
   );
 }
 
@@ -3414,6 +3570,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "repartir", label: "Repartir seguimiento", icon: CalendarRange },
     { key: "bandeja", label: "Mi bandeja", icon: Inbox },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
+    { key: "contenedor", label: "Contenedor general", icon: Boxes },
     { key: "carga", label: "Carga del equipo", icon: TrendingUp },
     { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
@@ -3424,6 +3581,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
+    { key: "contenedor", label: "Contenedor general", icon: Boxes },
     { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
@@ -3436,6 +3594,7 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "auditoria", label: "Auditoría", icon: ShieldCheck },
     { key: "bandeja_equipo", label: "Bandeja del equipo", icon: ListChecks },
     { key: "no_habil", label: "Casos horario no hábil", icon: Moon },
+    { key: "contenedor", label: "Contenedor general", icon: Boxes },
     { key: "carga", label: "Carga", icon: TrendingUp },
     { key: "distribucion", label: "Distribución Ingenieros", icon: Users },
     { key: "presencia", label: "En línea", icon: CircleDot },
@@ -3822,6 +3981,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "senior" && section === "repartir" && <SeniorView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "bandeja" && <AgentView perfil={perfil} catalogo={catalogo} fire={fire} incluirSenior />}
           {vista === "senior" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
+          {vista === "senior" && section === "contenedor" && <ContenedorGeneralView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "senior" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "senior" && section === "presencia" && <PresenciaView perfil={perfil} />}
@@ -3830,6 +3990,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "coordinador" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "coordinador" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "coordinador" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
+          {vista === "coordinador" && section === "contenedor" && <ContenedorGeneralView perfil={perfil} fire={fire} />}
           {vista === "coordinador" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "coordinador" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
@@ -3840,6 +4001,7 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
           {vista === "superadmin" && section === "bandeja_equipo" && <BandejaEquipoView />}
           {vista === "superadmin" && section === "no_habil" && <PoolNoHabilView perfil={perfil} fire={fire} />}
+          {vista === "superadmin" && section === "contenedor" && <ContenedorGeneralView perfil={perfil} fire={fire} />}
           {vista === "superadmin" && section === "carga" && <CargaView perfil={perfil} />}
           {vista === "superadmin" && section === "distribucion" && <DistribucionView perfil={perfil} fire={fire} />}
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
