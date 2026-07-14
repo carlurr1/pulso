@@ -369,6 +369,24 @@ export async function poolMoverMasivo(poolIds: string[], mesa: string): Promise<
   return (data as number) ?? 0;
 }
 
+// Asignación LIBRE (contenedor general): un senior/coordinación asigna casos
+// a cualquier ingeniero activo, sin restricción de mesa/grupo.
+export async function poolAsignarLibre(poolIds: string[], destinoId: string): Promise<number> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("pool_asignar_libre", { p_pools: poolIds, p_destino: destinoId });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
+
+// Todos los ingenieros activos (para el desplegable del contenedor general),
+// incluso los de otras mesas — un senior no los ve por RLS, este RPC sí.
+export async function getIngenierosTodos(): Promise<Usuario[]> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("ingenieros_todos");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Usuario[];
+}
+
 // ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
 // Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
 export async function getPoolPendientes() {
