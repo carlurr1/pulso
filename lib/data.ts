@@ -563,6 +563,19 @@ export async function cargaEquipo(desde: string, hasta: string, mesa?: string | 
   if (error) throw new Error(error.message);
   return data ?? [];
 }
+// Análisis de capacidad: demanda (casos, minutos de gestión) vs. capacidad
+// (minutos disponibles del turno) y personal, para evaluar si la carga es
+// acorde al número de personas.
+export type Capacidad = {
+  dias: number; persona_dias: number; personas: number; casos: number;
+  gestiones: number; min_gestion: number; min_capacidad: number;
+};
+export async function cargaCapacidad(desde: string, hasta: string, mesa?: string | null): Promise<Capacidad | null> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("carga_capacidad", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
+  return (data?.[0] as Capacidad) ?? null;
+}
 
 // ── Pausas (break / almuerzo) ─────────────────────────────────────
 export async function getPausaActiva(userId: string) {
