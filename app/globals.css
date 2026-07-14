@@ -117,6 +117,13 @@
 .casecard{border:1px solid var(--line);border-radius:13px;padding:14px 15px;background:var(--surface);
   display:flex;align-items:center;justify-content:space-between;gap:12px;transition:.15s}
 .casecard:hover{border-color:#CBD4E0;box-shadow:0 4px 14px -8px rgba(20,25,37,.18)}
+.casecard.selectable.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.casecheck{display:flex;align-items:center;padding-right:2px}
+.checkall{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft);white-space:nowrap;cursor:pointer}
+.checkall input,.casecheck input{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
+.selbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;background:var(--primary-50);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.pad14{padding:14px}
+.wrap{flex-wrap:wrap}
 .caseno{font-family:'JetBrains Mono';font-weight:700;font-size:15px;letter-spacing:-.5px}
 .caseCli{font-size:12.5px;font-weight:600;color:var(--primary);margin-top:2px}
 .caseChipCli{font-size:11px;font-weight:600;color:var(--ink-soft);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

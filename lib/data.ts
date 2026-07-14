@@ -352,6 +352,23 @@ export async function enviarNoHabilAContenedores(): Promise<number> {
   return (data as number) ?? 0;
 }
 
+// Asignar/tomar VARIOS casos del contenedor de una vez. destinoId = mi id
+// para "tomármelos". Devuelve cuántos se asignaron (salta los ya tomados).
+export async function poolAsignarMasivo(poolIds: string[], destinoId: string): Promise<number> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("pool_asignar_masivo", { p_pools: poolIds, p_destino: destinoId });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
+
+// Mover VARIOS casos del contenedor a la bolsa de otra mesa de una vez.
+export async function poolMoverMasivo(poolIds: string[], mesa: string): Promise<number> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("pool_mover_masivo", { p_pools: poolIds, p_mesa: mesa });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
+
 // ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
 // Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
 export async function getPoolPendientes() {
