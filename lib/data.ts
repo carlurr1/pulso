@@ -342,6 +342,16 @@ export async function poolMoverMesa(poolId: string, mesa: string) {
   if (error) throw new Error(error.message);
 }
 
+// Coordinación: empuja YA toda la bolsa de horario no hábil a los
+// contenedores de cada mesa (sin esperar a las 11:00). Devuelve cuántos
+// viajaron. La deduplicación evita duplicar los que el senior ya asignó.
+export async function enviarNoHabilAContenedores(): Promise<number> {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("migrar_no_habil_manual");
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
+
 // ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
 // Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
 export async function getPoolPendientes() {

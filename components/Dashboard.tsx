@@ -853,10 +853,37 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
     }
   };
 
+  // Coordinación: empujar YA toda la bolsa a los contenedores de cada mesa.
+  const esPrivPool = perfil.rol === "coordinador" || perfil.rol === "superadmin";
+  const noHabilCount = pool.filter((p) => p.fuera_horario === true).length;
+  const [enviando, setEnviando] = useState(false);
+  const enviarTodo = async () => {
+    if (!confirm(`Vas a enviar ${noHabilCount} caso(s) de la bolsa de horario no hábil al contenedor de su mesa. Los que un senior ya haya asignado no se duplican. ¿Continuar?`)) return;
+    setEnviando(true);
+    try {
+      const n = await data.enviarNoHabilAContenedores();
+      fire(`${n} caso(s) enviados a sus contenedores.`);
+      reload();
+    } catch (e: any) {
+      fire("Error: " + (e.message ?? "no se pudo enviar"));
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   return (
     <>
-      <div className="eyebrow">Bolsa</div>
-      <div className="h1">Casos horario no hábil</div>
+      <div className="row-between end">
+        <div>
+          <div className="eyebrow">Bolsa</div>
+          <div className="h1">Casos horario no hábil</div>
+        </div>
+        {esPrivPool && noHabilCount > 0 && (
+          <button className="btn primary" disabled={enviando} onClick={enviarTodo}>
+            <ArrowRight size={15} />{enviando ? "Enviando…" : `Enviar ${noHabilCount} a sus contenedores`}
+          </button>
+        )}
+      </div>
       <div className="sub mb20">
         Casos creados fuera del horario de atención (noche entre semana, fin de semana o festivo).
         Cualquiera puede tomarlos, sin importar su mesa — asígnalos a ti mismo o a alguien de tu equipo.
