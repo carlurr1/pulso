@@ -935,11 +935,11 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
 // Lista reutilizable del pool con checks, filtros (mesa/caso/cliente) y barra
 // de acciones masivas: tomar a mí, asignar a una persona, mover a otra bolsa.
 function ContenedorPool({
-  perfil, pool, personas, mesas, onReload, fire, permitirAsignarOtro, permitirMover,
+  perfil, pool, personas, mesas, onReload, fire, permitirAsignarOtro, permitirMover, asignacionLibre = false,
 }: {
   perfil: Usuario; pool: any[]; personas: Usuario[]; mesas: any[];
   onReload: () => void; fire: (m: string) => void;
-  permitirAsignarOtro: boolean; permitirMover: boolean;
+  permitirAsignarOtro: boolean; permitirMover: boolean; asignacionLibre?: boolean;
 }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [fMesa, setFMesa] = useState("");
@@ -975,10 +975,14 @@ function ContenedorPool({
     } catch (e: any) { fire("Error: " + (e.message ?? "")); }
     finally { setBusy(false); }
   };
-  const tomarSel = (ids: string[]) => correr(() => data.poolAsignarMasivo(ids, perfil.id), "tomados por ti");
+  // En el contenedor general la asignación es LIBRE (cualquier ingeniero, sin
+  // restricción de mesa); en "Mi bandeja" respeta las reglas por grupo.
+  const asignarRpc = (ids: string[], destino: string) =>
+    asignacionLibre ? data.poolAsignarLibre(ids, destino) : data.poolAsignarMasivo(ids, destino);
+  const tomarSel = (ids: string[]) => correr(() => asignarRpc(ids, perfil.id), "tomados por ti");
   const asignarSel = (destinoId: string) => {
     const d = personas.find((u) => u.id === destinoId);
-    correr(() => data.poolAsignarMasivo(seleccion, destinoId), `asignados a ${d ? firstLast(d.nombre, d.apellido) : "la persona"}`);
+    correr(() => asignarRpc(seleccion, destinoId), `asignados a ${d ? firstLast(d.nombre, d.apellido) : "la persona"}`);
     if (destinoId !== perfil.id && seleccion.length) pushUsuarios([destinoId], "Casos del contenedor asignados", `${perfil.nombre} te asignó ${seleccion.length} caso(s)`).catch(() => {});
   };
   const moverSel = (mesaDest: string) => correr(() => data.poolMoverMasivo(seleccion, mesaDest), `movidos a la bolsa de ${mesaLabel(mesaDest)}`);
@@ -1062,7 +1066,8 @@ function ContenedorGeneralView({ perfil, fire }: { perfil: Usuario; fire: (m: st
       setMesas(ms.filter((m) => !m.oculta));
       reload();
     }).catch(() => reload());
-    (priv ? data.getUsuarios() : data.getEquipo(null))
+    // Todos los ingenieros (incluye otras mesas) para poder repartir libremente.
+    data.getIngenierosTodos()
       .then((l) => setPersonas(l.filter((u) => u.activo && (u.rol === "agente" || u.rol === "senior"))))
       .catch(() => {});
     const t = setInterval(reload, 60000);
@@ -1077,7 +1082,7 @@ function ContenedorGeneralView({ perfil, fire }: { perfil: Usuario; fire: (m: st
         <span className="chip medio">{pool.length} sin asignar</span>
       </div>
       <div className="sub small mt3 mb16">Casos que están en los contenedores y nadie ha tomado. Marca los que quieras y asígnalos a una persona, muévelos a otra bolsa o tómatelos.</div>
-      <ContenedorPool perfil={perfil} pool={pool} personas={personas} mesas={mesas} onReload={reload} fire={fire} permitirAsignarOtro permitirMover />
+      <ContenedorPool perfil={perfil} pool={pool} personas={personas} mesas={mesas} onReload={reload} fire={fire} permitirAsignarOtro permitirMover asignacionLibre />
     </div>
   );
 }
@@ -2222,6 +2227,7 @@ function GestionConfig({ catalogo, reload, fire }: { catalogo: GestionTipo[]; re
                   </select></div>
                 <div><label className="lbl">Tiempo típico (min)</label><input className="inp mono" type="number" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></div>
               </div>
+              <div className="sub tiny mt8">Las categorías <b>Reuniones</b> y <b>Gestión interna</b> no piden número de caso — úsalas para evaluaciones, preturnos, capacitaciones y demás. Igual cuentan como tiempo productivo.</div>
             </div>
             <div className="modalFoot"><button className="btn ghost" onClick={() => setModal(false)}>Cancelar</button><button className="btn primary" onClick={add}>Agregar</button></div>
           </div>
@@ -3108,7 +3114,7 @@ function HorarioSemana() {
     const map = new Map<string, any>();
     filas.forEach((h: any) => {
       const id = h.user_id;
-      if (!map.has(id)) map.set(id, { nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", dias: {} as any });
+      if (!map.has(id)) map.set(id, { nombre: h.usuarios ? `${h.usuarios.nombre} ${h.usuarios.apellido ?? ""}` : "—", cargo: h.usuarios?.cargo ?? "", mesa: h.usuarios?.mesa ?? null, dias: {} as any });
       const d = (new Date(h.fecha + "T12:00:00").getDay() + 6) % 7;
       map.get(id).dias[d] = h;
     });
@@ -3128,7 +3134,7 @@ function HorarioSemana() {
             <tbody>
               {personas.map((p, i) => (
                 <tr key={i}>
-                  <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}</div></td>
+                  <td className="stickyc bold s12">{p.nombre}<div className="sub tiny">{p.cargo}{p.mesa ? <> · <span className="chip bajo s11">{mesaLabel(p.mesa)}</span></> : ""}</div></td>
                   {DIAS.map((_, d) => {
                     const h = p.dias[d];
                     return <td key={d} className="diacell">{h ? <span className="turnopill">{h.turno ?? ((h.disponible_min / 60).toFixed(1) + "h")}</span> : <span className="descanso">—</span>}</td>;
