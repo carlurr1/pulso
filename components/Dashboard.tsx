@@ -651,10 +651,12 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
   // (Élite+Distrito se apoyan en cualquier horario).
   const [pool, setPool] = useState<any[]>([]);
   const [mixto, setMixto] = useState(false);
+  const [mesasAll, setMesasAll] = useState<any[]>([]);
   const grupoMesasRef = useRef<Set<string>>(new Set(perfil.mesa ? [perfil.mesa] : []));
   const reloadPool = () => data.getPoolPendientes().then((l: any[]) => setPool(l.filter((p) => grupoMesasRef.current.has(p.mesa)))).catch(() => {});
   useEffect(() => {
     data.getMesas().then((ms: any[]) => {
+      setMesasAll(ms.filter((m) => !m.oculta));
       const miGrupo = ms.find((m) => m.nombre === perfil.mesa)?.grupo || perfil.mesa;
       const grupo = ms.filter((m) => (m.grupo || m.nombre) === miGrupo);
       const esMixto = grupo.some((m) => m.grupo_mixto);
@@ -674,6 +676,15 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
       reloadPool();
       if (destinoId === sel) data.getMiBandeja(sel).then(setBandeja);
     } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo asignar")); }
+  };
+  const moverPool = async (poolId: string, mesaDestino: string) => {
+    if (!mesaDestino) return;
+    try {
+      const p = pool.find((x) => x.id === poolId);
+      await data.poolMoverMesa(poolId, mesaDestino);
+      fire(`Caso ${p ? "#" + p.numero_caso : ""} movido a la bolsa de ${mesaLabel(mesaDestino)}`);
+      reloadPool();
+    } catch (e: any) { fire("Error: " + (e.message ?? "no se pudo mover")); }
   };
 
   const [reasignando, setReasignando] = useState<string | null>(null);
@@ -732,11 +743,17 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
                         <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                       </div>
                     </div>
-                    <select className="inp dateinp" defaultValue="" onChange={(e) => asignarPool(p.id, e.target.value)}>
-                      <option value="">Asignar a…</option>
-                      {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
-                      <option value={perfil.id}>Yo ({perfil.nombre})</option>
-                    </select>
+                    <div className="gap9 center-row">
+                      <select className="inp dateinp" defaultValue="" onChange={(e) => { moverPool(p.id, e.target.value); e.currentTarget.value = ""; }} title="Reenrutar a otra bolsa">
+                        <option value="">Mover a bolsa de…</option>
+                        {mesasAll.filter((m) => m.nombre !== p.mesa).map((m) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
+                      </select>
+                      <select className="inp dateinp" defaultValue="" onChange={(e) => asignarPool(p.id, e.target.value)}>
+                        <option value="">Asignar a…</option>
+                        {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
+                        <option value={perfil.id}>Yo ({perfil.nombre})</option>
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -779,7 +796,9 @@ function SeniorView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => vo
 function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) => void }) {
   const [pool, setPool] = useState<any[]>([]);
   const [equipo, setEquipo] = useState<Usuario[]>([]);
+  const [mesas, setMesas] = useState<any[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const puedeMover = perfil.rol !== "agente";   // senior/coordinación pueden reenrutar
   // Mesa que la mía apoya (ej. MEN → PREMIUM 3): fuera de horario también
   // se muestra su contenedor (la RLS solo lo deja ver en horario no hábil).
   const apoyaMesaRef = useRef<string | null>(null);
@@ -788,11 +807,12 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
     .catch(() => {});
   useEffect(() => {
     data.getMesaApoyo(perfil.mesa).then((m) => { apoyaMesaRef.current = m; reload(); }).catch(() => reload());
-    if (perfil.mesa) {
-      data.getEquipo(perfil.mesa)
-        .then((eq) => setEquipo(eq.filter((u) => u.id !== perfil.id && (u.rol === "agente" || u.rol === "senior"))))
-        .catch(() => {});
-    }
+    // Todo mi grupo (la RLS acota: un senior ve a su grupo completo; en un
+    // grupo mixto como Élite+Distrito, ambas mesas).
+    data.getEquipo(null)
+      .then((eq) => setEquipo(eq.filter((u) => u.id !== perfil.id && (u.rol === "agente" || u.rol === "senior"))))
+      .catch(() => {});
+    if (puedeMover) data.getMesas().then((m: any[]) => setMesas(m.filter((x) => !x.oculta))).catch(() => {});
     const t = setInterval(reload, 60000);
     return () => clearInterval(t);
     // eslint-disable-next-line
@@ -813,6 +833,21 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
       reload();
     } catch (e: any) {
       fire("Error: " + (e.message ?? "no se pudo asignar"));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const mover = async (poolId: string, mesaDestino: string) => {
+    if (!mesaDestino) return;
+    setBusy(poolId);
+    try {
+      const caso = pool.find((p) => p.id === poolId);
+      await data.poolMoverMesa(poolId, mesaDestino);
+      fire(`Caso ${caso ? "#" + caso.numero_caso : ""} movido a la bolsa de ${mesaLabel(mesaDestino)}`);
+      reload();
+    } catch (e: any) {
+      fire("Error: " + (e.message ?? "no se pudo mover"));
     } finally {
       setBusy(null);
     }
@@ -842,11 +877,19 @@ function PoolNoHabilView({ perfil, fire }: { perfil: Usuario; fire: (m: string) 
                     <span className="faint">· {new Date(p.created_at).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                   </div>
                 </div>
-                <select className="inp dateinp" disabled={busy === p.id} defaultValue="" onChange={(e) => asignar(p.id, e.target.value)}>
-                  <option value="">Asignar a…</option>
-                  <option value={perfil.id}>Yo ({perfil.nombre})</option>
-                  {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
-                </select>
+                <div className="gap9 center-row">
+                  {puedeMover && (
+                    <select className="inp dateinp" disabled={busy === p.id} defaultValue="" onChange={(e) => { mover(p.id, e.target.value); e.currentTarget.value = ""; }} title="Reenrutar a otra bolsa">
+                      <option value="">Mover a bolsa de…</option>
+                      {mesas.filter((m) => m.nombre !== p.mesa).map((m) => <option key={m.nombre} value={m.nombre}>{mesaLabel(m.nombre)}</option>)}
+                    </select>
+                  )}
+                  <select className="inp dateinp" disabled={busy === p.id} defaultValue="" onChange={(e) => asignar(p.id, e.target.value)}>
+                    <option value="">Asignar a…</option>
+                    <option value={perfil.id}>Yo ({perfil.nombre})</option>
+                    {equipo.map((u) => <option key={u.id} value={u.id}>{firstLast(u.nombre, u.apellido)}</option>)}
+                  </select>
+                </div>
               </div>
             ))}
           </div>
@@ -2698,6 +2741,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
                 <td className="bold nameCell">
                   <button className="linkperson" onClick={() => setPerfilUser({ id: f.user_id, nombre: firstLast(f.nombre, f.apellido) })} title="Ver perfil del día">
                     <span className="uava xsmall">{(f.nombre?.[0] ?? "") + (f.apellido?.[0] ?? "")}</span>{f.nombre} {f.apellido}
+                    {f.user_id === perfil.id && <span className="chip bajo s11" style={{ marginLeft: 6 }}>Tú</span>}
                   </button>
                 </td>
                 <td className="s12">{f.cargo}</td>
@@ -2716,7 +2760,7 @@ function PresenciaView({ perfil }: { perfil: Usuario }) {
                 <td className="mono bold primary">{fmtMin(f.minutos_logueado || 0)}</td>
                 <td className="mono bold">{f.minutos_pc ? fmtMin(f.minutos_pc) : <span className="faint">—</span>}</td>
                 <td className="mono s12">{f.minutos_pausa ? fmtMin(f.minutos_pausa) : <span className="faint">—</span>}</td>
-                <td><button className="btn ghost sm" onClick={() => { setMsg("Te necesito un momento, por favor."); setAlerta({ user: f.user_id, nombre: `${f.nombre} ${f.apellido ?? ""}` }); }}><Bell size={13} />Alerta</button></td>
+                <td>{f.user_id === perfil.id ? <span className="faint s12">—</span> : <button className="btn ghost sm" onClick={() => { setMsg("Te necesito un momento, por favor."); setAlerta({ user: f.user_id, nombre: `${f.nombre} ${f.apellido ?? ""}` }); }}><Bell size={13} />Alerta</button>}</td>
               </tr>
             ))}
           </tbody>

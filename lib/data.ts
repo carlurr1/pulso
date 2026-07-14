@@ -323,10 +323,30 @@ export async function eliminarFestivo(fecha: string) {
   if (error) throw error;
 }
 
+// Dispara (a lo sumo cada 5 min por pestaña) la migración de la bolsa de
+// horario no hábil al contenedor de cada mesa cuando ya pasaron 5h del
+// inicio del horario hábil. Idempotente y barata; la base decide si aplica.
+let _ultimaMigracionNoHabil = 0;
+function dispararMigracionNoHabil() {
+  const now = Date.now();
+  if (now - _ultimaMigracionNoHabil < 5 * 60 * 1000) return;
+  _ultimaMigracionNoHabil = now;
+  createClient().rpc("migrar_no_habil_a_bolsa").then(() => {}, () => {});
+}
+
+// Mover un caso pendiente del pool a la bolsa de otra mesa (senior/priv).
+// Para casos mal ubicados que hay que reenrutar a otro segmento.
+export async function poolMoverMesa(poolId: string, mesa: string) {
+  const sb = createClient();
+  const { error } = await sb.rpc("pool_mover_mesa", { p_pool: poolId, p_mesa: mesa });
+  if (error) throw new Error(error.message);
+}
+
 // ── Contenedor general por mesa (casos cruzados entre subsegmentos) ─
 // Pendientes visibles para mí (RLS: mi grupo, o todo si soy privilegiado).
 export async function getPoolPendientes() {
   const sb = createClient();
+  dispararMigracionNoHabil();
   const { data } = await sb.from("casos_pool").select("*").eq("estado", "pendiente").order("created_at");
   const filas = (data ?? []) as any[];
   if (!filas.length) return [];
