@@ -3150,17 +3150,38 @@ function CargaView({ perfil }: { perfil: Usuario }) {
   const [q, setQ] = useState("");
   const [filas, setFilas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cap, setCap] = useState<data.Capacidad | null>(null);
+  const [porTipo, setPorTipo] = useState<any[]>([]);
+  const [meta, setMeta] = useState(85);   // meta de ocupación (%)
   const priv = perfil.rol === "coordinador" || perfil.rol === "superadmin";
 
   useEffect(() => {
     let vivo = true;
     setLoading(true);
-    data.cargaEquipo(desde, hasta, priv ? (mesa || null) : null)
+    const m = priv ? (mesa || null) : null;
+    data.cargaEquipo(desde, hasta, m)
       .then((d) => { if (vivo) { setFilas(d); setLoading(false); } })
       .catch(() => { if (vivo) setLoading(false); });
+    data.cargaCapacidad(desde, hasta, m).then((c) => { if (vivo) setCap(c); }).catch(() => { if (vivo) setCap(null); });
+    data.gPorTipo(desde, hasta, null, m).then((t) => { if (vivo) setPorTipo(t); }).catch(() => { if (vivo) setPorTipo([]); });
     return () => { vivo = false; };
     /* eslint-disable-next-line */
   }, [desde, hasta, mesa]);
+
+  // ── Cálculos de capacidad ──────────────────────────────────────
+  const dias = Math.max(1, cap?.dias ?? 0);
+  const casosDia = cap ? (cap.casos / dias) : 0;
+  const ahtCaso = cap && cap.casos ? cap.min_gestion / cap.casos : 0;         // min por caso
+  const demandaH = (cap?.min_gestion ?? 0) / 60;
+  const capacidadH = (cap?.min_capacidad ?? 0) / 60;
+  const ocupacion = cap && cap.min_capacidad ? (cap.min_gestion / cap.min_capacidad) * 100 : null;
+  const capPersonaDia = cap && cap.persona_dias ? cap.min_capacidad / cap.persona_dias : 0;   // min/persona/día
+  const personasActuales = cap ? (cap.persona_dias / dias) : 0;               // promedio de personas/día
+  const personasNecesarias = capPersonaDia > 0 ? (cap!.min_gestion / dias) / (capPersonaDia * (meta / 100)) : null;
+  const faltanHorarios = !cap || cap.min_capacidad === 0;
+  const veredicto = faltanHorarios ? "sin-horario"
+    : personasNecesarias == null ? "sin-horario"
+    : personasNecesarias <= personasActuales + 0.05 ? "ok" : "alto";
 
   const activos = filas.filter((f: any) => f.asignados > 0 || f.minutos > 0);
   const totalAsig = activos.reduce((s: number, f: any) => s + f.asignados, 0);
@@ -3182,6 +3203,59 @@ function CargaView({ perfil }: { perfil: Usuario }) {
         </div>
       </div>
       <div className="sub small mt3">Periodo: {fmtFecha(desde)} → {fmtFecha(hasta)} · {activos.length} persona(s) con carga · promedio <b>{promedio.toFixed(1)}</b> casos asignados por persona</div>
+
+      {cap && (
+        <div className="card mt15">
+          <div className="row-between end mb4">
+            <div className="h2">Análisis de carga · ¿alcanza el personal?</div>
+            <label className="metaocup">Meta de ocupación
+              <input type="number" className="inp dateinp metaslider" min={50} max={100} value={meta} onChange={(e) => setMeta(Math.min(100, Math.max(50, +e.target.value || 85)))} />%
+            </label>
+          </div>
+          <div className="sub small mb12">Demanda (tiempo de gestión) frente a la capacidad (turnos disponibles) del periodo. La ocupación es cuánto del tiempo disponible se va en gestión; con la meta se estiman las personas necesarias.</div>
+
+          <div className="capverdict" style={{ borderLeftColor: veredicto === "ok" ? "var(--ok)" : veredicto === "alto" ? "var(--danger)" : "var(--warn)" }}>
+            {veredicto === "sin-horario" ? (
+              <span>No se puede evaluar el personal: faltan <b>horarios cargados</b> de esta mesa en el periodo (sin turnos no hay capacidad con qué comparar).</span>
+            ) : veredicto === "ok" ? (
+              <span><b>Carga adecuada.</b> Con ~{personasActuales.toFixed(1)} persona(s)/día se cubre la demanda a una ocupación meta del {meta}% (se necesitarían ~{personasNecesarias!.toFixed(1)}).</span>
+            ) : (
+              <span><b>Sobrecarga.</b> La demanda pide ~{personasNecesarias!.toFixed(1)} persona(s)/día al {meta}% de ocupación y hay ~{personasActuales.toFixed(1)}. Faltarían ~{Math.max(0, personasNecesarias! - personasActuales).toFixed(1)}.</span>
+            )}
+          </div>
+
+          <div className="grid six mt12">
+            <div className="card capkpi"><div className="eyebrow mb6">Casos por día</div><div className="bignum">{casosDia.toFixed(1)}</div><div className="sub tiny">{cap.casos} en {dias} día(s)</div></div>
+            <div className="card capkpi"><div className="eyebrow mb6">Tiempo por caso</div><div className="bignum">{ahtCaso.toFixed(0)}<span className="capu"> min</span></div><div className="sub tiny">promedio (AHT)</div></div>
+            <div className="card capkpi"><div className="eyebrow mb6">Demanda</div><div className="bignum">{demandaH.toFixed(0)}<span className="capu"> h</span></div><div className="sub tiny">tiempo de gestión</div></div>
+            <div className="card capkpi"><div className="eyebrow mb6">Capacidad</div><div className="bignum">{capacidadH.toFixed(0)}<span className="capu"> h</span></div><div className="sub tiny">turnos disponibles</div></div>
+            <div className="card capkpi"><div className="eyebrow mb6">Ocupación</div><div className="bignum" style={{ color: ocupacion != null && ocupacion > meta ? "var(--danger)" : "var(--ink)" }}>{ocupacion != null ? Math.round(ocupacion) + "%" : "—"}</div><div className="sub tiny">de lo disponible</div></div>
+            <div className="card capkpi"><div className="eyebrow mb6">Personas / día</div><div className="bignum">{personasActuales.toFixed(1)}{personasNecesarias != null && <span className="capu"> / {personasNecesarias.toFixed(1)}</span>}</div><div className="sub tiny">actual / necesarias</div></div>
+          </div>
+
+          {porTipo.length > 0 && (
+            <div className="mt15">
+              <div className="h2 mb4" style={{ fontSize: 15 }}>Tiempo por tipo de gestión</div>
+              <div className="sub small mb10">Creación, escalamiento, seguimiento… cuántas veces y cuánto toma cada una.</div>
+              <div className="tblscroll">
+                <table className="tbl">
+                  <thead><tr><th>Tipo</th><th>Veces</th><th>Tiempo promedio</th><th>Tiempo total</th></tr></thead>
+                  <tbody>
+                    {porTipo.map((t: any, i: number) => (
+                      <tr key={i}>
+                        <td className="bold">{t.nombre}</td>
+                        <td className="mono">{t.total}</td>
+                        <td className="mono">{t.total ? Math.round(t.minutos / t.total) : 0} min</td>
+                        <td className="mono">{(t.minutos / 60).toFixed(1)} h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? <div className="card mt20"><div className="empty">Cargando…</div></div> : activos.length === 0 ? (
         <div className="card mt20"><div className="empty">Sin casos asignados en el periodo.</div></div>
