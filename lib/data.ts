@@ -595,6 +595,20 @@ export async function cargaCapacidad(desde: string, hasta: string, mesa?: string
   return (data?.[0] as Capacidad) ?? null;
 }
 
+// ── Semáforo de gestión (coordinación) ────────────────────────────
+export async function flujoDiario(desde: string, hasta: string, mesa?: string | null) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("flujo_diario", { p_desde: desde, p_hasta: hasta, p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { dia: string; ingresos: number; cierres: number; pendientes: number }[];
+}
+export async function distribucionAntiguedad(mesa?: string | null) {
+  const sb = createClient();
+  const { data, error } = await sb.rpc("distribucion_antiguedad", { p_mesa: mesa || null });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { estado: string; dias: number; casos: number }[];
+}
+
 // ── Pausas (break / almuerzo) ─────────────────────────────────────
 export async function getPausaActiva(userId: string) {
   const sb = createClient();
