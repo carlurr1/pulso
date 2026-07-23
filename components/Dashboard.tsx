@@ -4,7 +4,7 @@ import {
   Activity, Inbox, CalendarRange, Users, LogOut, Plus, Check, X, Phone,
   Mail, Wrench, KeyRound, ArrowUpRight, FileText, Settings2, AlertTriangle,
   TrendingUp, Search, ChevronRight, Upload, Eye, EyeOff, CircleDot,
-  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon, Boxes, Gauge,
+  LayoutDashboard, ShieldCheck, Download, Printer, Clock, Bell, ArrowRight, ListChecks, Trash2, Sun, Moon, Boxes,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -3638,123 +3638,6 @@ function HorariosView({ perfil }: { perfil: Usuario }) {
   );
 }
 
-/* ════════════════ SEMÁFORO DE GESTIÓN ════════════════ */
-function SemaforoView() {
-  const [desde, setDesde] = useState(isoHace(13));
-  const [hasta, setHasta] = useState(todayISO());
-  const [mesa, setMesa] = useState("");
-  const [flujo, setFlujo] = useState<{ dia: string; ingresos: number; cierres: number; pendientes: number }[]>([]);
-  const [dist, setDist] = useState<{ estado: string; dias: number; casos: number }[]>([]);
-  const [kpis, setKpis] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let vivo = true;
-    setLoading(true);
-    const m = mesa || null;
-    Promise.all([
-      data.flujoDiario(desde, hasta, m).catch(() => []),
-      data.distribucionAntiguedad(m).catch(() => []),
-      data.gKpis(desde, hasta, null, m).catch(() => null),
-    ]).then(([f, d, k]) => {
-      if (!vivo) return;
-      setFlujo(f); setDist(d); setKpis(k); setLoading(false);
-    });
-    return () => { vivo = false; };
-  }, [desde, hasta, mesa]);
-
-  // Pivote antigüedad: filas por estado, columnas por días.
-  const ESTLBL: Record<string, string> = { pendiente: "Abierto", progreso: "En proceso" };
-  const diasCols = useMemo(() => [...new Set(dist.map((d) => d.dias))].sort((a, b) => a - b), [dist]);
-  const estados = ["pendiente", "progreso"].filter((e) => dist.some((d) => d.estado === e));
-  const cell = (est: string, dia: number) => dist.find((d) => d.estado === est && d.dias === dia)?.casos ?? 0;
-  const rowTot = (est: string) => dist.filter((d) => d.estado === est).reduce((s, d) => s + d.casos, 0);
-  const colTot = (dia: number) => dist.filter((d) => d.dias === dia).reduce((s, d) => s + d.casos, 0);
-  const totAbiertos = dist.reduce((s, d) => s + d.casos, 0);
-
-  const exportar = () => exportarExcel(`Semaforo_${desde}_a_${hasta}`, [
-    { nombre: "Flujo diario", filas: flujo.map((f) => ({ "Día": f.dia, Ingresos: f.ingresos, Cierres: f.cierres, Pendientes: f.pendientes })) },
-    { nombre: "Antigüedad", filas: dist.map((d) => ({ Estado: ESTLBL[d.estado] ?? d.estado, "Días": d.dias, Casos: d.casos })) },
-  ]);
-
-  return (
-    <div id="reporte">
-      <div className="row-between end">
-        <div><div className="eyebrow">Semáforo Gestión Back · Group COS para ETB</div><div className="h1">Semáforo de gestión</div></div>
-        <div className="toolbar no-print">
-          <MesaSelector mesa={mesa} setMesa={setMesa} />
-          <RangoFechas desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
-          <button className="btn ghost sm" onClick={exportar}><Download size={14} />Excel</button>
-          <button className="btn primary sm" onClick={() => window.print()}><Printer size={14} />PDF</button>
-        </div>
-      </div>
-      <div className="sub small mt3 mb16">Corte {fmtFecha(hasta)} · {mesa ? mesaLabel(mesa) : "toda la operación"}</div>
-
-      {loading ? <div className="card"><div className="empty">Cargando…</div></div> : (
-        <>
-          <div className="grid two">
-            <div className="card semtile ok"><div className="sembig">{kpis?.gestionados ?? 0}</div><div className="sub">Cierres efectivos registrados</div></div>
-            <div className="card semtile acc"><div className="sembig">{kpis?.efectividad != null ? kpis.efectividad + "%" : "—"}</div><div className="sub">Tasa de efectividad en cierres</div></div>
-          </div>
-
-          <div className="bandlbl mt16">Casos abiertos por antigüedad (días)</div>
-          <div className="card nopad mt8">
-            <div className="tblscroll">
-              {diasCols.length === 0 ? <div className="empty pad24">No hay casos abiertos.</div> : (
-                <table className="tbl pivtbl">
-                  <thead>
-                    <tr><th>Estado</th>{diasCols.map((d) => <th key={d}>{d}</th>)}<th className="totcol">Total</th></tr>
-                  </thead>
-                  <tbody>
-                    {estados.map((est) => (
-                      <tr key={est}>
-                        <td className="bold">{ESTLBL[est] ?? est}</td>
-                        {diasCols.map((d) => { const v = cell(est, d); return <td key={d}>{v || <span className="faint">0</span>}</td>; })}
-                        <td className="totcol">{rowTot(est)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr><td>Total general</td>{diasCols.map((d) => <td key={d}>{colTot(d)}</td>)}<td className="totcol">{totAbiertos}</td></tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-          </div>
-
-          <div className="bandlbl mt16">Ingresos, cierres y pendientes por día</div>
-          <div className="card nopad mt8">
-            <div className="tblscroll">
-              <table className="tbl pivtbl">
-                <thead><tr><th>Día</th><th>Ingresos</th><th>Cierres</th><th>Pendientes</th></tr></thead>
-                <tbody>
-                  {flujo.map((f) => (
-                    <tr key={f.dia}>
-                      <td className="bold">{fmtFecha(f.dia)}</td>
-                      <td><span className="chip bajo s11">{f.ingresos}</span></td>
-                      <td><span className="chip done s11">{f.cierres}</span></td>
-                      <td><span className={"chip s11 " + (f.pendientes > 0 ? "pend" : "neutral")}>{f.pendientes}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td>Total</td>
-                    <td>{flujo.reduce((s, f) => s + f.ingresos, 0)}</td>
-                    <td>{flujo.reduce((s, f) => s + f.cierres, 0)}</td>
-                    <td className="faint">—</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-          <div className="sub tiny mt8">Ingreso = primera vez que el caso se asigna. Cierre = día en que se gestiona (cierra). Pendientes = casos abiertos al final de cada día (backlog).</div>
-        </>
-      )}
-    </div>
-  );
-}
-
 /* ════════════════ SHELL ════════════════ */
 type NavItem = { key: string; label: string; icon: any };
 const NAV: Record<Rol, NavItem[]> = {
@@ -3784,7 +3667,6 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
-    { key: "semaforo", label: "Semáforo", icon: Gauge },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
   ],
   superadmin: [
@@ -3798,7 +3680,6 @@ const NAV: Record<Rol, NavItem[]> = {
     { key: "presencia", label: "En línea", icon: CircleDot },
     { key: "estadisticas", label: "Estadísticas", icon: Activity },
     { key: "horario", label: "Horarios", icon: Clock },
-    { key: "semaforo", label: "Semáforo", icon: Gauge },
     { key: "resumen", label: "Resumen ejecutivo", icon: FileText },
     { key: "config", label: "Configuración", icon: Settings2 },
   ],
@@ -4195,7 +4076,6 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "coordinador" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "coordinador" && section === "estadisticas" && <EstadisticasView />}
           {vista === "coordinador" && section === "horario" && <HorariosView perfil={perfil} />}
-          {vista === "coordinador" && section === "semaforo" && <SemaforoView />}
           {vista === "coordinador" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "tablero" && <CoordView tab="tablero" />}
           {vista === "superadmin" && section === "auditoria" && <CoordView tab="auditoria" />}
@@ -4207,7 +4087,6 @@ export default function Dashboard({ perfil }: { perfil: Usuario }) {
           {vista === "superadmin" && section === "presencia" && <PresenciaView perfil={perfil} />}
           {vista === "superadmin" && section === "estadisticas" && <EstadisticasView />}
           {vista === "superadmin" && section === "horario" && <HorariosView perfil={perfil} />}
-          {vista === "superadmin" && section === "semaforo" && <SemaforoView />}
           {vista === "superadmin" && section === "resumen" && <ResumenView />}
           {vista === "superadmin" && section === "config" && <ConfigView catalogo={catalogo} reloadCatalogo={reloadCatalogo} fire={fire} />}
         </div>
