@@ -130,6 +130,15 @@
 .capu{font-size:14px;color:var(--ink-soft);font-weight:600}
 .metaocup{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
 .metaslider{width:64px}
+.semtile{text-align:center;padding:22px 18px}
+.sembig{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.semtile.ok{background:var(--ok-50)} .semtile.ok .sembig{color:var(--ok)}
+.semtile.acc{background:var(--accent-50)} .semtile.acc .sembig{color:var(--accent)}
+.pivtbl th,.pivtbl td{text-align:center;white-space:nowrap}
+.pivtbl th:first-child,.pivtbl td:first-child{text-align:left}
+.pivtbl thead th{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pivtbl .totcol{background:var(--primary-50);font-weight:700}
+.pivtbl tfoot td{background:var(--primary-50);font-weight:700}
 .caseno{font-family:'JetBrains Mono';font-weight:700;font-size:15px;letter-spacing:-.5px}
 .caseCli{font-size:12.5px;font-weight:600;color:var(--primary);margin-top:2px}
 .caseChipCli{font-size:11px;font-weight:600;color:var(--ink-soft);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
